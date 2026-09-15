@@ -1,0 +1,4 @@
+{
+  "features": {"rsi_period": 26, "ema_period": 200, "bollinger_period": 200, "bollinger_std": 1.19},
+  "backtest": {"initial_capital": 10000, "commission_bps_per_side": 2.5, "slippage_bps_per_side": 1.0, "annualization": 252}
+}
