@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "axiom-research"
-version = "0.1.0"
+version = "1.0.0"
 description = "Reproducible quantitative research, beginning with daily data and a tested backtest"
 requires-python = ">=3.12"
-dependencies = ["polars>=1.30,<2", "numpy>=2.2,<3", "pydantic>=2.10,<3", "exchange-calendars>=4.11,<5"]
+dependencies = ["polars>=1.30,<2", "numpy>=2.2,<3", "pydantic>=2.10,<3", "exchange-calendars>=4.11,<5", "sqlalchemy>=2,<3", "psycopg[binary]>=3.2,<4", "alembic>=1.14,<2", "fastapi>=0.121,<1", "uvicorn>=0.34,<1", "pydantic-settings>=2.7,<3", "httpx>=0.28,<1", "scikit-learn>=1.6,<2", "scipy>=1.15,<2", "xgboost>=3,<4", "numba>=0.61,<1"]
 
 [project.optional-dependencies]
 yahoo = ["yfinance>=0.2.65,<2"]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.16,<2"]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.16,<2", "psutil>=6,<8", "matplotlib>=3.9,<4", "playwright>=1.50,<2"]
 
 [project.scripts]
 axiom = "axiom.cli:main"
@@ -27,6 +27,7 @@ target-version = "py312"
 select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.mypy]
+plugins = ["pydantic.mypy"]
 python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = true

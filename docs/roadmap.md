@@ -1,27 +1,19 @@
-# Roadmap and portfolio integration
+# Axiom roadmap
 
-## Current milestone: V0.1
+## Current milestone: V1.0 local daily research and paper execution
 
-Architecture and first complete command-line data/features/backtest pipeline.
-This is the stopping point requested by the attached development brief. Verify
-this stage before implementing additional infrastructure.
+All six extensions requested after V0.1 are implemented: V0.2 metadata/ingestion, V0.3 event execution/accounting/risk, V0.4 API/dashboard/Docker, V0.5 walk-forward ML, V0.6 measured 342-instrument scaling, and V1.0 optional daily data plus paper operations.
 
-## Later milestones
+The [README](../README.md) defines the tested scope and run commands. [Validation evidence](validation-v1.md) records concrete checks. [Methodology](methodology-v1.md) explains execution assumptions and limitations.
 
-- V0.2: PostgreSQL, instrument/experiment metadata, incremental ingestion,
-  richer feature framework, 50+ instruments and transactional version tracking.
-- V0.3: event-driven domain model, orders/fills, shorts, limit/stop/stop-limit,
-  accounting, risk APPROVE/MODIFY/REJECT and comprehensive analytics.
-- V0.4: FastAPI, Next.js/TypeScript interactive backtests, Docker and integration
-  into the portfolio page at `/work/quantitative-finance-analytics/` on `dev`.
-- V0.5: time-ordered ML train/validation/test, walk-forward evaluation and leakage
-  safeguards; prediction metrics remain separate from trading performance.
-- V0.6: scale toward 342 instruments, profile actual bottlenecks and compare
-  vectorization/Polars/Numba/native implementations with measured workloads.
-- V1.0: evaluate live data and paper execution only after reliable research.
+## Potential future work
 
-The existing Golden Cross Tearsheet remains intact in `personalportfolio`.
-Axiom's future dashboard should reuse its portfolio design language while making
-actual executed research jobs distinct from precomputed result viewing. That
-replacement is not part of this V0.1 commit. Real-money automated trading is
-outside initial development scope.
+- Point-in-time instrument membership and corporate-action-aware total returns.
+- Multiple timeframes and tick/quote-level execution models.
+- Borrow inventory, financing, margin liquidations and exchange calendars beyond US ETFs.
+- Persisted event checkpoints to replace whole-prefix paper replay.
+- A durable worker queue for asynchronous multiuser research.
+- Public authentication, authorization, quotas and managed backups before external hosting.
+- Additional ML datasets and embargo-aware model selection across research campaigns.
+
+Real-money automated execution remains outside the implemented scope. The portfolio replacement is on its `dev` branch; production deployment is a separate operation.

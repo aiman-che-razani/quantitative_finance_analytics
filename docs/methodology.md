@@ -1,3 +1,5 @@
+> Archived V0.1 methodology. For the current shared portfolio engine, see [V1.0 methodology](methodology-v1.md).
+
 # Execution, features and metric conventions
 
 ## Feature causality

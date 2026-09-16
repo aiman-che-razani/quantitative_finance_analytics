@@ -1,0 +1,12 @@
+.git
+.venv
+.python
+.bootstrap
+.uv-cache
+.runtime
+data
+reports
+.env*
+apps/dashboard/node_modules
+apps/dashboard/.next
+__pycache__

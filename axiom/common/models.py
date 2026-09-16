@@ -39,9 +39,13 @@ UNIVERSE = [
 
 class FeatureConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+    rolling_backend: Literal["polars", "numba", "native"] = "polars"
     rsi_period: int = Field(default=26, ge=2, le=1000)
     ema_period: int = Field(default=200, ge=2, le=1000)
     bollinger_period: int = Field(default=200, ge=2, le=1000)
+    atr_period: int = Field(default=14, ge=2, le=1000)
+    rolling_period: int = Field(default=20, ge=2, le=1000)
+    momentum_period: int = Field(default=20, ge=1, le=1000)
     bollinger_std: float = Field(default=1.19, gt=0, le=10)
 
 

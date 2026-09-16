@@ -38,13 +38,23 @@ class FeaturePipeline:
         outputs = []
         for group in bars.sort(["instrument", "timestamp"]).partition_by("instrument"):
             cfg = self.config
+            middle: pl.Expr | pl.Series = pl.col("close").rolling_mean(cfg.bollinger_period)
+            if cfg.rolling_backend != "polars":
+                from axiom.features.kernels import native_mean, numba_mean
+
+                kernel = native_mean if cfg.rolling_backend == "native" else numba_mean
+                middle = pl.Series(
+                    "bb_middle",
+                    kernel(group["close"].to_numpy(), cfg.bollinger_period),
+                    nan_to_null=True,
+                )
             group = (
                 group.with_columns(
                     pl.Series("rsi", wilder_rsi(group["close"].to_numpy(), cfg.rsi_period)),
                     pl.col("close")
                     .ewm_mean(span=cfg.ema_period, adjust=False, min_samples=cfg.ema_period)
                     .alias("ema"),
-                    pl.col("close").rolling_mean(cfg.bollinger_period).alias("bb_middle"),
+                    middle.alias("bb_middle"),
                     pl.col("close").rolling_std(cfg.bollinger_period, ddof=0).alias("bb_std"),
                     (pl.col("close") / pl.col("close").shift(1) - 1).alias("simple_return"),
                 )
@@ -60,6 +70,37 @@ class FeaturePipeline:
                         pl.col("bb_middle").is_not_null(),
                     ).alias("ready")
                 )
+            )
+            group = group.with_columns(
+                pl.max_horizontal(
+                    pl.col("high") - pl.col("low"),
+                    (pl.col("high") - pl.col("close").shift(1)).abs(),
+                    (pl.col("low") - pl.col("close").shift(1)).abs(),
+                ).alias("true_range"),
+                (pl.col("close") / pl.col("close").shift(1)).log().alias("log_return"),
+                pl.col("simple_return").rolling_std(cfg.rolling_period, ddof=1).alias("volatility"),
+                (pl.col("close") / pl.col("close").shift(cfg.momentum_period) - 1).alias(
+                    "momentum"
+                ),
+                pl.col("close").rolling_mean(cfg.rolling_period).alias("rolling_mean"),
+                pl.col("close").rolling_std(cfg.rolling_period, ddof=0).alias("rolling_std"),
+                pl.col("close").rolling_min(cfg.rolling_period).alias("rolling_min"),
+                pl.col("close").rolling_max(cfg.rolling_period).alias("rolling_max"),
+                pl.when(pl.col("volume").shift(1) > 0)
+                .then(pl.col("volume") / pl.col("volume").shift(1) - 1)
+                .otherwise(0)
+                .alias("volume_change"),
+                pl.col("close").ewm_mean(span=20, adjust=False, min_samples=20).alias("ema_fast"),
+            ).with_columns(
+                pl.col("true_range").rolling_mean(cfg.atr_period).alias("atr"),
+                pl.col("simple_return").shift(1).alias("lagged_return"),
+                pl.when(pl.col("bb_upper") > pl.col("bb_lower"))
+                .then(
+                    (pl.col("close") - pl.col("bb_lower"))
+                    / (pl.col("bb_upper") - pl.col("bb_lower"))
+                )
+                .otherwise(0.5)
+                .alias("bb_position"),
             )
             outputs.append(group)
         return pl.concat(outputs).sort(["instrument", "timestamp"])

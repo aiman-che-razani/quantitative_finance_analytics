@@ -1,0 +1,47 @@
+name: Axiom validation
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: axiom
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: axiom
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U axiom"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://axiom:test-password@localhost:5432/axiom
+      AXIOM_TEST_DATABASE_URL: postgresql+psycopg://axiom:test-password@localhost:5432/axiom
+      API_TOKEN: ci-test-token-01234567890123456789
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.15"
+          python-version: "3.12"
+      - run: uv sync --frozen --extra dev --extra yahoo
+      - run: uv run alembic upgrade head
+      - run: uv run ruff check axiom tests scripts alembic
+      - run: uv run ruff format --check axiom tests scripts alembic
+      - run: uv run mypy axiom
+      - run: uv run python scripts/build_native.py
+      - run: uv run pytest -q
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run build

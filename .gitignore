@@ -19,3 +19,15 @@ dist/
 /demo-output.json
 /yahoo-ingestion.json
 /historical-output.json
+
+/.runtime/
+/apps/dashboard/node_modules/
+/apps/dashboard/.next/
+/native/*.dll
+/native/*.so
+/native/*.obj
+/native/*.lib
+/native/*.exp
+
+*.tsbuildinfo
+/docs/benchmarks/*.prof

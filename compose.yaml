@@ -1,0 +1,49 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: axiom
+      POSTGRES_DB: axiom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U axiom -d axiom"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  migrate:
+    build: .
+    environment: &backend
+      DATABASE_URL: postgresql+psycopg://axiom:${POSTGRES_PASSWORD}@postgres:5432/axiom
+      API_TOKEN: ${API_TOKEN:?Set API_TOKEN}
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    build: .
+    environment: *backend
+    ports: ["127.0.0.1:8820:8820"]
+    volumes: ["bars:/app/data", "reports:/app/reports"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,httpx; r=httpx.get('http://127.0.0.1:8820/health',headers={'Authorization':'Bearer '+os.environ['API_TOKEN']}); r.raise_for_status()"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  dashboard:
+    build: apps/dashboard
+    environment:
+      AXIOM_API_URL: http://api:8820
+      API_TOKEN: ${API_TOKEN}
+    ports: ["127.0.0.1:8821:8821"]
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  pgdata:
+  bars:
+  reports:

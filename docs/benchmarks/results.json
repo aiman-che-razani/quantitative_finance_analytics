@@ -1,0 +1,46 @@
+{
+  "source": "synthetic-v2",
+  "instruments": 342,
+  "sessions": 2514,
+  "rows": 859788,
+  "start": "2016-01-01",
+  "end_exclusive": "2026-01-01",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.14",
+  "cpu_logical": 16,
+  "kernels": {
+    "python": {
+      "cold_seconds": 0.17299659999844152,
+      "median_seconds": 0.16858479999791598,
+      "rows_per_second": 5100032.7432285035
+    },
+    "numpy": {
+      "cold_seconds": 0.037168999999266816,
+      "median_seconds": 0.03855969999858644,
+      "rows_per_second": 22297580.11684528
+    },
+    "polars": {
+      "cold_seconds": 0.019160200001351768,
+      "median_seconds": 0.01415659999838681,
+      "rows_per_second": 60734074.572847694
+    },
+    "numba": {
+      "cold_seconds": 0.5007903000005172,
+      "median_seconds": 0.0033296000001428183,
+      "rows_per_second": 258225612.67513233
+    },
+    "cpp": {
+      "cold_seconds": 0.003885000001901062,
+      "median_seconds": 0.00356620000093244,
+      "rows_per_second": 241093600.96887293
+    }
+  },
+  "feature_seconds": 1.8060154000013426,
+  "event_replay_seconds": 17.047534400000586,
+  "total_seconds": 21.902388399998017,
+  "process_cpu_seconds": 24.515625,
+  "peak_rss_mb": 1910.2890625,
+  "fills": 11100,
+  "final_equity": 172505.97556883167,
+  "method": "Five warm repetitions, median wall time. Kernel comparison uses one contiguous synthetic series; portfolio features reset per instrument. Peak RSS sampled every 20 ms, includes interpreter and JIT. No ingestion or network timing included in replay."
+}
