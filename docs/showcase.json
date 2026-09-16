@@ -1,10 +1,10 @@
 [
   {
-    "id": "99beb6f0-0003-4f7d-a006-c81310a4d483",
+    "id": "d119a09a-9967-4460-97fb-dbdb4a6c57a2",
     "provenance": {
       "dataset_id": "9f11067ec1c13b70d49ff972138ef3877dbf3f403d4048667ad542d163a8f676",
       "provider": "yahoo",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -44,7 +44,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:03.664095+00:00"
+      "created_at": "2026-09-16T17:06:19.200245+00:00"
     },
     "strategy": "ema_trend",
     "provider": "yahoo",
@@ -2501,11 +2501,11 @@
     }
   },
   {
-    "id": "2b536bf2-3713-4d17-bbfc-f8f4a7649717",
+    "id": "0b98954a-00ae-425b-b9f0-7b9bb65f64cb",
     "provenance": {
       "dataset_id": "9f11067ec1c13b70d49ff972138ef3877dbf3f403d4048667ad542d163a8f676",
       "provider": "yahoo",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -2545,7 +2545,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:03.780480+00:00"
+      "created_at": "2026-09-16T17:06:19.324428+00:00"
     },
     "strategy": "rsi_reversion",
     "provider": "yahoo",
@@ -5002,11 +5002,11 @@
     }
   },
   {
-    "id": "76f99183-22a6-4e00-814c-03b209c2c080",
+    "id": "69f1696f-1a06-45b8-a41d-1715df5a23a9",
     "provenance": {
       "dataset_id": "9f11067ec1c13b70d49ff972138ef3877dbf3f403d4048667ad542d163a8f676",
       "provider": "yahoo",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -5046,7 +5046,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:03.897153+00:00"
+      "created_at": "2026-09-16T17:06:19.436104+00:00"
     },
     "strategy": "buy_hold",
     "provider": "yahoo",
@@ -7503,11 +7503,11 @@
     }
   },
   {
-    "id": "ca732aba-4494-4c09-8b80-cfaaa6e32f2e",
+    "id": "898e6f09-130a-4f47-adca-a66854a23100",
     "provenance": {
       "dataset_id": "8ce51d9e4b3b7110a5192a08da96b28e1afd2eacca9b5a63f85c679f317426ad",
       "provider": "synthetic-v2",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -7547,7 +7547,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:05.088827+00:00"
+      "created_at": "2026-09-16T17:06:20.873262+00:00"
     },
     "strategy": "ema_trend",
     "provider": "synthetic-v2",
@@ -8998,11 +8998,11 @@
     }
   },
   {
-    "id": "f86607ff-7538-48ae-b02c-abfc2f2f0597",
+    "id": "cfe07296-5c48-444d-977c-c094899c0825",
     "provenance": {
       "dataset_id": "8ce51d9e4b3b7110a5192a08da96b28e1afd2eacca9b5a63f85c679f317426ad",
       "provider": "synthetic-v2",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -9042,7 +9042,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:06.272735+00:00"
+      "created_at": "2026-09-16T17:06:22.095990+00:00"
     },
     "strategy": "rsi_reversion",
     "provider": "synthetic-v2",
@@ -10493,11 +10493,11 @@
     }
   },
   {
-    "id": "c26d3304-8646-46c5-a18e-f565cedb5ee3",
+    "id": "82d52fe0-33a6-437b-b365-4cda9115c39a",
     "provenance": {
       "dataset_id": "8ce51d9e4b3b7110a5192a08da96b28e1afd2eacca9b5a63f85c679f317426ad",
       "provider": "synthetic-v2",
-      "code_commit": "e7e6c962ac231f9fe9eb1c1faef23e101477b4b2",
+      "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
       "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
       "working_tree_dirty": true,
       "config": {
@@ -10537,7 +10537,7 @@
         },
         "ml": {}
       },
-      "created_at": "2026-09-16T17:05:07.507715+00:00"
+      "created_at": "2026-09-16T17:06:23.321015+00:00"
     },
     "strategy": "buy_hold",
     "provider": "synthetic-v2",
