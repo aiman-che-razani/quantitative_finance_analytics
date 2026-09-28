@@ -11,6 +11,8 @@ from axiom.backtest.orders import Order, execution_price
 from axiom.portfolio.account import Account
 from axiom.risk.engine import RiskConfig, assess
 
+MAX_EVENTS = 20000  # cap on recorded events per replay; events_truncated reports overflow
+
 STRATEGIES = [
     "buy_hold",
     "ema_trend",
@@ -126,9 +128,16 @@ def run_events(
     last_equity = config.initial_capital
     fee_rate = config.commission_bps / 10000
 
+    truncated = False
+
     def event(event_type, **values):
-        if record_events and len(events) < 20000:
+        nonlocal truncated
+        if not record_events:
+            return
+        if len(events) < MAX_EVENTS:
             events.append({**values, "event_type": event_type})
+        else:
+            truncated = True
 
     def orders_at(i):
         nonlocal counter
@@ -274,7 +283,7 @@ def run_events(
         "positions": final["positions"],
         "first_index": first,
         "events": events,
-        "events_truncated": len(events) >= 20000,
+        "events_truncated": truncated,
         "pending_orders": [asdict(o) for o in pending.values()],
         "final": final,
     }

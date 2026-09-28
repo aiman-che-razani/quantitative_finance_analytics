@@ -13,6 +13,9 @@ from axiom.data.storage import SnapshotStore
 from axiom.features.pipeline import FeaturePipeline
 from axiom.metadata import DatasetRow, PaperRow
 
+# Calendar days without a new bar after which a paper account is flagged STALE_INPUT.
+STALE_AFTER_DAYS = 4
+
 
 def create_account(sessions, dataset_id, symbols, strategy, execution):
     identity = str(uuid.uuid4())
@@ -41,13 +44,14 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
     with sessions.begin() as db:
         row = db.scalar(select(PaperRow).where(PaperRow.id == identity).with_for_update())
         if row is None:
-            raise ValueError("Unknown paper account")
+            raise LookupError("Unknown paper account")
         cfg = row.config
         dataset_id = dataset_id or cfg["dataset_id"]
         dataset = db.get(DatasetRow, dataset_id)
         original = db.get(DatasetRow, cfg["dataset_id"])
         if (
             dataset is None
+            or original is None
             or dataset.provider != original.provider
             or not set(cfg["symbols"]) <= set(dataset.symbols)
         ):
@@ -78,7 +82,7 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
                 raise ValueError("Previously processed bars changed")
             if latest_stamp.date().isoformat() == last:
                 alerts = [a for a in row.state.get("alerts", []) if a != "STALE_INPUT"]
-                if (as_of - latest_stamp.date()).days > 4:
+                if (as_of - latest_stamp.date()).days > STALE_AFTER_DAYS:
                     alerts.append("STALE_INPUT")
                 row.state = {**row.state, "alerts": alerts}
                 row.updated_at = datetime.now(timezone.utc)
@@ -89,9 +93,13 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
         )
         latest = latest_stamp.date()
         alerts = []
-        if (as_of - latest).days > 4:
+        if (as_of - latest).days > STALE_AFTER_DAYS:
             alerts.append("STALE_INPUT")
-        if any(d["action"] == "REJECT" for d in replay["risk_decisions"][-len(cfg["symbols"]) :]):
+        # Only a rejection in the latest session is current; an old one must not re-alert.
+        if any(
+            d["action"] == "REJECT" and d["timestamp"][:10] == latest.isoformat()
+            for d in replay["risk_decisions"]
+        ):
             alerts.append("RISK_REJECTION")
         state = {
             "last_session": latest.isoformat(),
@@ -117,7 +125,7 @@ def record_tick_failure(sessions, account_id: str, error: str) -> None:
     is silently ignored: the caller has already logged the error and there is
     nothing left to mark."""
     with sessions.begin() as db:
-        account = db.get(PaperRow, account_id)
+        account = db.scalar(select(PaperRow).where(PaperRow.id == account_id).with_for_update())
         if account is not None:
             account.state = {
                 **account.state,

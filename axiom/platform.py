@@ -87,17 +87,16 @@ def run_experiment(
         commit = os.environ.get("GIT_COMMIT", "unavailable")
         dirty = None
         if shutil.which("git"):
-            commit = (
-                subprocess.run(
-                    ["git", "rev-parse", "HEAD"], capture_output=True, text=True
-                ).stdout.strip()
-                or commit
+            code_root = Path(__file__).resolve().parents[1]
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], capture_output=True, text=True, cwd=code_root
             )
-            dirty = bool(
-                subprocess.run(
-                    ["git", "status", "--porcelain"], capture_output=True, text=True
-                ).stdout.strip()
+            if head.returncode == 0 and head.stdout.strip():
+                commit = head.stdout.strip()
+            status = subprocess.run(
+                ["git", "status", "--porcelain"], capture_output=True, text=True, cwd=code_root
             )
+            dirty = bool(status.stdout.strip()) if status.returncode == 0 else None
         source_root = Path(__file__).resolve().parent
         digest = hashlib.sha256()
         for source in sorted(source_root.rglob("*.py")):
@@ -120,10 +119,15 @@ def run_experiment(
             row.result = result
             row.finished_at = datetime.now(timezone.utc)
         return {"id": identity, **result}
-    except Exception as exc:
-        with sessions.begin() as db:
-            row = db.get(ExperimentRow, identity)
-            row.status = "FAILED"
-            row.error = str(exc)[:1000]
-            row.finished_at = datetime.now(timezone.utc)
+    except BaseException as exc:
+        # BaseException so Ctrl-C/SystemExit also mark the row; a failure while marking
+        # must not mask the original error (scripts/recover_runs.py handles the leftover).
+        try:
+            with sessions.begin() as db:
+                row = db.get(ExperimentRow, identity)
+                row.status = "FAILED"
+                row.error = (str(exc) or type(exc).__name__)[:1000]
+                row.finished_at = datetime.now(timezone.utc)
+        except Exception:
+            pass
         raise

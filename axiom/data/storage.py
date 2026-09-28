@@ -2,6 +2,9 @@
 
 import hashlib
 import json
+import os
+import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -28,6 +31,22 @@ class SnapshotStore:
         if (target / "manifest.json").exists():
             return identity
         stage = target.with_name(identity + ".partial-" + str(uuid.uuid4()))
+        try:
+            self._stage(frame, identity, stage)
+            stage.rename(target)
+        except OSError:
+            shutil.rmtree(stage, ignore_errors=True)
+            # A concurrent writer published the same content-addressed snapshot first.
+            if (target / "manifest.json").exists():
+                return identity
+            raise
+        except BaseException:
+            shutil.rmtree(stage, ignore_errors=True)
+            raise
+        _fsync(target.parent)
+        return identity
+
+    def _stage(self, frame: pl.DataFrame, identity: str, stage: Path) -> None:
         parts = []
         partitioned = frame.with_columns(pl.col("timestamp").dt.year().alias("year"))
         for (symbol, year, timeframe), group in partitioned.partition_by(
@@ -42,6 +61,7 @@ class SnapshotStore:
             output = stage / relative
             output.parent.mkdir(parents=True, exist_ok=True)
             group.drop("year").write_parquet(output, compression="zstd")
+            _fsync(output)
             parts.append(
                 {
                     "path": relative.as_posix(),
@@ -51,12 +71,11 @@ class SnapshotStore:
             )
         manifest = {"version": 1, "dataset_id": identity, "rows": frame.height, "parts": parts}
         (stage / "manifest.json").write_text(json.dumps(manifest, indent=2))
-        stage.rename(target)
-        return identity
+        _fsync(stage / "manifest.json")
+        for directory in {p.parent for p in stage.rglob("*.parquet")} | {stage}:
+            _fsync(directory)
 
     def read(self, identity: str) -> pl.DataFrame:
-        import re
-
         if not re.fullmatch(r"[0-9a-f]{64}", identity):
             raise ValueError("invalid dataset ID")
         root = self.root / "validated" / identity
@@ -74,3 +93,14 @@ class SnapshotStore:
         if hashlib.sha256(canonical.encode()).hexdigest() != identity:
             raise ValueError("snapshot content hash mismatch")
         return frame
+
+
+def _fsync(path: Path) -> None:
+    """Flush a file or directory entry to disk so a published snapshot survives power loss."""
+    if path.is_dir() and os.name == "nt":
+        return  # Windows cannot open a directory for fsync
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)

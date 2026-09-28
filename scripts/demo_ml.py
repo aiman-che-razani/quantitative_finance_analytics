@@ -15,6 +15,8 @@ with sessions() as db:
         .where(DatasetRow.provider == "synthetic-v2")
         .order_by(DatasetRow.created_at.desc())
     )
+if dataset is None:
+    raise SystemExit("No synthetic-v2 dataset; run scripts/demo_platform.py first")
 result = run_experiment(sessions, settings, dataset.id, ["SPY"], kind="ml")
 print("ML experiment", result["id"], "folds", len(result["folds"]))
 engine.dispose()

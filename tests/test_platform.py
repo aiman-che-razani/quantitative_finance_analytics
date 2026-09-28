@@ -294,7 +294,26 @@ def test_api_requires_authentication(pg):
             == 422
         )
         # Non-ASCII credentials must fail closed as 401, not crash compare_digest.
-        assert client.get("/health", headers=[(b"authorization", b"Bearer \xe9")]).status_code == 401
+        assert (
+            client.get("/health", headers=[(b"authorization", b"Bearer \xe9")]).status_code == 401
+        )
+
+
+def test_api_rejects_duplicate_symbols_and_unknown_accounts(pg):
+    _, settings = pg
+    auth = {"Authorization": "Bearer " + settings.api_token}
+    with TestClient(create_app(settings)) as client:
+        duplicate = client.post(
+            "/experiments", headers=auth, json={"dataset_id": "a" * 64, "symbols": ["SPY", "SPY"]}
+        )
+        assert duplicate.status_code == 422
+        missing = client.post(
+            "/paper/00000000-0000-0000-0000-000000000000/advance",
+            headers=auth,
+            json={"as_of": "2020-06-01"},
+        )
+        assert missing.status_code == 404
+        assert client.get("/experiments/not-a-uuid", headers=auth).status_code == 422
 
 
 def test_advance_request_rejects_unknown_fields():
