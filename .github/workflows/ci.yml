@@ -44,6 +44,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/dashboard/package-lock.json
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run build
   docker:
     runs-on: ubuntu-latest

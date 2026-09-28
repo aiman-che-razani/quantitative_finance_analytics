@@ -75,12 +75,12 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
   strategy line plus an optional thinner blue (`#8199c5`) benchmark line, `fitContent()` on load
   (`page.tsx:120`), caption "Drag to pan · Scroll to zoom · Green: strategy · Blue: buy and hold"
   (`page.tsx:127-129`) — keep that caption's color-to-meaning mapping if this component is touched,
-  it is the only legend. Has an `aria-label` on the chart container (`page.tsx:126`).
+  it is the only legend. Its chart container has `role="img"` plus an `aria-label` (a bare `aria-label` on a role-less `<div>` is ignored by screen readers; fixed 2026-09-28). The caption names only the series actually drawn (a `caption` prop overrides it, e.g. the drawdown chart).
 - **`MarketPlot`** (`page.tsx:145-198`): a candlestick chart (green up / red down,
   `page.tsx:161-167`) plus EMA (amber, `page.tsx:172`) and both Bollinger bands (blue,
   `page.tsx:173-174`) as line overlays, height 420 (`page.tsx:151`), caption noting the 3,000-session
-  cap (`page.tsx:193-195`). **Fixed 2026-09-28:** its chart container now carries an
-  `aria-label` matching the heading text, consistent with `Plot`.
+  cap (`page.tsx:193-195`). **Fixed 2026-09-28:** its chart container now carries
+  `role="img"` and an `aria-label` matching the heading text, consistent with `Plot`.
 - **`Table`** (`page.tsx:199-235`): a generic key-driven table for any `Record<string, unknown>[]`.
   Numeric cells are locale-formatted to 4 decimal places (`page.tsx:216-219`), everything else is
   `String(...)` with `—` for null/undefined (`page.tsx:220`); column headers are the raw field name
@@ -110,8 +110,10 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
 - **Buttons** (`globals.css:92-120`): default (`#1a2933` bg, `#c5d6df` text, hover border
   `#a8ecb4` / text `#e3ffec`), `.primary` (solid `#a8ecb4` bg, `#10261a` text, weight 700), `nav`
   buttons are borderless/transparent with the active tab underlined in accent green
-  (`globals.css:110-119`), disabled state (`opacity: .45`, `cursor: wait`,
-  `globals.css:106-109`) while `busy` is true.
+  (`globals.css:110-119`), disabled state (`opacity: .45`, `cursor: not-allowed`,
+  `globals.css:106-109`); the busy message lives in a persistent `role="status"` region that
+  names the running action. Nav tabs mark the selected tab with `aria-current="page"` and use an
+  inset focus ring so the scrolling `nav` does not clip it.
 
 ## Semantic rules (content that must stay honest)
 
@@ -171,15 +173,9 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
   properties; introducing `:root` variables would reduce drift risk the next time a color changes,
   but is a real refactor, not a one-line fix — propose it rather than doing it inline in an
   unrelated change.
-- `Result.simulation.trades` is fetched and typed but never rendered anywhere in the UI (see
-  `Table` drift above) — either wire it up or drop it from the type; leaving it half-plumbed is the
-  kind of drift this document exists to catch.
 - The heatmap's rgba pair (`rgba(80,170,115,α)` / `rgba(210,90,90,α)`) is a de-facto second
   green/red token distinct from the brand `#a8ecb4`/`#e39d9d` hex — worth formalizing (e.g. naming
   both pairs explicitly) if a `:root`-variable refactor ever happens.
-- `.summary strong` / `.metrics strong` render at normal (400) weight, not 500, due to the `font`
-  shorthand omitting a weight — flagged above; either intentional (lighter big numbers) or a
-  one-line fix (`font: 500 24px ...`) depending on what's wanted.
 
 ## Designing something new
 

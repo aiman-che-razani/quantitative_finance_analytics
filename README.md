@@ -107,7 +107,7 @@ The scheduler logs alerts and stores them on the paper account. `STALE_INPUT`, `
 
 ## Measured scaling
 
-The checked-in [benchmark results](docs/benchmarks/results.json) cover **859,788 synthetic bars** across **342 simulated instruments** and ten calendar years. The profiled replay improved from **56.66 s to 17.05 s** after removing redundant position serialization, with the same 11,100 fills and final equity. Final feature calculation took **1.81 s**; sampled peak process RSS was about **1,910 MiB**. These are development-machine observations, not service guarantees. The two runs had different ambient load; profiler evidence identifies the removed work.
+The checked-in [benchmark results](docs/benchmarks/results.json) cover **859,788 synthetic bars** across **342 simulated instruments** and ten calendar years. The profiled replay improved from **56.66 s to 17.05 s** after removing redundant position serialization, with the same 11,100 fills and final equity. Final feature calculation took **1.81 s**; sampled peak process RSS was about **1,910 MiB**. These are development-machine observations, not service guarantees. The two runs had materially different ambient load (the unchanged Python kernel ran 1.68× faster in the second run), and the pre-optimization code and its profile are not committed, so the 3.3× figure is not an isolated measure of the optimization. Replay equivalence is regression-tested in `tests/test_platform.py::test_mark_serialization_optimization_preserves_replay`.
 
 ![Kernel comparison](docs/benchmarks/kernels.png)
 
@@ -145,7 +145,7 @@ uv run python scripts/check_platform.py
 uv run python scripts/check_browser.py
 ```
 
-The browser harness needs Chromium installed through Playwright and both the Axiom app and portfolio at port 8790. Tests cover causal features, validation, snapshots, account reconciliation and reversal, gap/limit behavior, short leverage, partial fills, pending-order cancellation, horizon purges, PostgreSQL ingestion, authentication and paper idempotency. GitHub Actions runs the PostgreSQL suite, native kernel checks, static checks and the Next.js build.
+The browser harness needs Chromium installed through Playwright and both the Axiom app and portfolio at port 8790. Tests cover causal features, validation, snapshots, account reconciliation and reversal, gap/limit behavior, short leverage, partial fills, pending-order cancellation, horizon purges, PostgreSQL ingestion, authentication and paper idempotency. GitHub Actions runs the PostgreSQL suite, native kernel checks, static checks, the Next.js build, and a Docker Compose build-and-smoke job.
 
 ## Portfolio
 
@@ -153,6 +153,6 @@ The `personalportfolio` repository's `dev` route `/work/quantitative-finance-ana
 
 ## Limitations and next improvements
 
-Daily US ETF price data only; no tick/quote feed, total-return adjustment, point-in-time universe, borrow inventory, financing, margin calls, taxes or real order routing. Shared portfolio replay currently requires aligned sessions. Protective exits become active on the bar after entry. ATR uses a simple rolling mean, while RSI uses Wilder smoothing. ML results on the supplied deterministic synthetic data validate software behavior and cannot establish predictive value. The fixed-universe Yahoo study is also subject to selection and survivorship bias.
+Daily US ETF price data only; no tick/quote feed, total-return adjustment, point-in-time universe, borrow inventory, financing, margin calls, taxes or real order routing. Shared portfolio replay currently requires aligned sessions. Protective exits become active on the bar after entry. ATR uses a simple rolling mean, while RSI uses Wilder smoothing. ML results on the supplied deterministic synthetic data validate software behavior and cannot establish predictive value. The recorded Yahoo studies (10 hand-picked ETFs in `docs/verification-evidence.json`; SPY in `docs/showcase.json`) and any study on the fixed 60-ETF universe are subject to selection and survivorship bias.
 
 See [architecture](docs/architecture-v1.md), [methodology](docs/methodology-v1.md), [original brief](docs/project-brief.md), and [saved validation evidence](docs/validation-v1.md).

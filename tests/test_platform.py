@@ -337,3 +337,197 @@ def test_mark_serialization_optimization_preserves_replay(monkeypatch):
 
     monkeypatch.setattr(Account, "mark", full_mark)
     assert run_events(event_frame(), "buy_hold", config) == optimized
+
+
+@pytest.mark.parametrize(
+    "exit_kwargs,exit_bar,exit_price",
+    [
+        ({"stop_loss": 0.05}, {"low": 90.0}, 95.0),
+        ({"take_profit": 0.05}, {"high": 106.0}, 105.0),
+    ],
+)
+def test_stop_loss_and_take_profit_exit_at_trigger_price(exit_kwargs, exit_bar, exit_price):
+    frame = event_frame().with_columns(pl.lit(1e6).alias("volume"))
+    for column, value in exit_bar.items():
+        frame = frame.with_columns(
+            pl.when(pl.int_range(pl.len()) == 2).then(value).otherwise(pl.col(column)).alias(column)
+        )
+    config = ExecutionConfig(
+        commission_bps=0, slippage_bps=0, spread_bps=0, participation=1, **exit_kwargs
+    )
+    result = run_events(frame, "buy_hold", config)
+    entry, exit_fill = result["fills"][0], result["fills"][1]
+    # stop_loss also caps entry size via risk_per_trade: 100000 * 0.02 / 0.05 = 40000.
+    expected_units = 400.0 if "stop_loss" in exit_kwargs else 1000.0
+    assert entry["timestamp"].startswith("2020-01-02")
+    assert entry["units"] == pytest.approx(expected_units)
+    assert entry["price"] == pytest.approx(100.0)
+    assert exit_fill["timestamp"].startswith("2020-01-03")
+    assert exit_fill["units"] == pytest.approx(-expected_units)
+    assert exit_fill["price"] == pytest.approx(exit_price)
+    assert result["trades"][0]["pnl"] == pytest.approx(expected_units * (exit_price - 100.0))
+
+
+class ShiftedStableProvider(StableSyntheticProvider):
+    """Same dates as StableSyntheticProvider, every price 1% higher: a 'corrected' feed."""
+
+    def fetch(self, instrument, start, end):
+        frame = super().fetch(instrument, start, end)
+        return frame.with_columns(pl.col(c) * 1.01 for c in ("open", "high", "low", "close"))
+
+
+def test_paper_rejects_changed_history_and_foreign_provider(pg):
+    sessions, settings = pg
+    original = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, original["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    before = paper.advance(sessions, settings, identity, date(2020, 6, 1))
+    # Same provider name and symbols, but different bars for already-replayed sessions.
+    corrected = ingest_incremental(
+        sessions,
+        settings.data_root,
+        ShiftedStableProvider(),
+        UNIVERSE[:2],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    with pytest.raises(ValueError, match="Previously processed bars changed"):
+        paper.advance(sessions, settings, identity, date(2020, 12, 1), corrected["dataset_id"])
+    foreign = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 2, 1),  # different content, so not deduplicated onto the original row
+        "test-other-provider",
+    )
+    with pytest.raises(ValueError, match="Incompatible dataset"):
+        paper.advance(sessions, settings, identity, date(2020, 12, 1), foreign["dataset_id"])
+    with pytest.raises(LookupError, match="Unknown paper account"):
+        paper.advance(sessions, settings, "00000000-0000-0000-0000-000000000000", date(2020, 6, 1))
+    with pytest.raises(ValueError, match="Only prior completed"):
+        paper.advance(sessions, settings, identity, date.today())
+    with sessions() as db:
+        row = db.get(PaperRow, identity)
+        assert row.state == before
+        assert row.config["dataset_id"] == original["dataset_id"]
+
+
+def test_failed_experiment_is_recorded_as_failed(pg):
+    sessions, settings = pg
+    # ~150 sessions: short of the 200-session EMA/Bollinger warm-up.
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2020, 6, 1),
+        date(2021, 1, 1),
+        "test-short",
+    )
+    with pytest.raises(ValueError, match="Insufficient feature warm-up"):
+        run_experiment(
+            sessions,
+            settings,
+            dataset["dataset_id"],
+            ["SPY"],
+            "ema_trend",
+            ExecutionConfig(),
+            FeatureConfig(),
+            "backtest",
+        )
+    with sessions() as db:
+        rows = (
+            db.query(ExperimentRow).filter(ExperimentRow.dataset_id == dataset["dataset_id"]).all()
+        )
+        assert len(rows) == 1
+        assert rows[0].status == "FAILED"
+        assert "Insufficient feature warm-up" in rows[0].error
+        assert rows[0].finished_at is not None
+        assert rows[0].result is None
+
+
+def test_incremental_conflicting_overlap_is_rejected_and_head_unchanged(pg):
+    from axiom.metadata import HeadRow
+
+    sessions, settings = pg
+    first = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-conflict",
+    )
+    with pytest.raises(ValueError, match="Conflicting overlap"):
+        ingest_incremental(
+            sessions,
+            settings.data_root,
+            ShiftedStableProvider(),
+            UNIVERSE[:1],
+            date(2020, 12, 1),
+            date(2022, 1, 1),
+            "test-conflict",
+        )
+    with sessions() as db:
+        heads = db.query(HeadRow).filter(HeadRow.dataset_id == first["dataset_id"]).all()
+        assert len(heads) == 1
+
+
+def test_api_experiment_and_paper_round_trip(pg, monkeypatch):
+    import threading
+
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    monkeypatch.setattr("axiom.api.database", lambda url: (sessions.kw["bind"].engine, sessions))
+    headers = {"Authorization": "Bearer " + settings.api_token}
+    body = {"dataset_id": dataset["dataset_id"], "symbols": ["SPY"], "strategy": "buy_hold"}
+    with TestClient(create_app(settings)) as client:
+        created = client.post("/experiments", headers=headers, json=body)
+        assert created.status_code == 200
+        fetched = client.get(f"/experiments/{created.json()['id']}", headers=headers).json()
+        assert fetched["status"] == "SUCCEEDED"
+        assert fetched["result"]["provenance"]["dataset_id"] == dataset["dataset_id"]
+        missing = client.get("/experiments/00000000-0000-0000-0000-000000000000", headers=headers)
+        assert missing.status_code == 404
+        ml = client.post("/experiments", headers=headers, json={**body, "strategy": "ml"})
+        assert ml.status_code == 422
+        qqq = client.post("/experiments", headers=headers, json={**body, "symbols": ["QQQ"]})
+        assert qqq.status_code == 422
+        market = client.get(f"/market/{dataset['dataset_id']}?symbol=QQQ", headers=headers)
+        assert market.status_code == 404
+        account = client.post("/paper", headers=headers, json=body).json()["id"]
+        advanced = client.post(
+            f"/paper/{account}/advance", headers=headers, json={"as_of": "2020-12-31"}
+        )
+        assert advanced.status_code == 200
+        assert advanced.json()["fills"]
+        backwards = client.post(
+            f"/paper/{account}/advance", headers=headers, json={"as_of": "2020-06-01"}
+        )
+        assert backwards.status_code == 422
+    busy = threading.BoundedSemaphore(1)
+    busy.acquire()
+    monkeypatch.setattr("axiom.api.threading.BoundedSemaphore", lambda n: busy)
+    with TestClient(create_app(settings)) as client:
+        assert client.post("/experiments", headers=headers, json=body).status_code == 429

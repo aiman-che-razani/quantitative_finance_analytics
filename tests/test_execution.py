@@ -109,3 +109,50 @@ def test_loss_circuit_breakers_allow_within_limits():
     decision = assess(a, "SPY", 10, 90, {"SPY": 90}, RiskConfig(), 10000, 10000, 0)
     assert decision.action in ("APPROVE", "MODIFY")
     assert decision.reason != "Portfolio loss circuit breaker"
+
+
+@pytest.mark.parametrize(
+    "strategy,row,current,expected",
+    [
+        ("ema_trend", {"close": 99, "ema": 100}, 1, 0),
+        ("ema_trend", {"close": 101, "ema": 100}, 0, 1),
+        ("ema_crossover", {"ema_fast": 101, "ema": 100}, 0, 1),
+        ("ema_crossover", {"ema_fast": None, "ema": 100}, 1, 0),
+        ("momentum", {"momentum": -0.1}, 1, 0),
+        ("momentum", {"momentum": None}, 1, 0),
+        ("rsi_reversion", {"rsi": 25}, 0, 1),
+        ("rsi_reversion", {"rsi": 40}, 1, 1),
+        ("rsi_reversion", {"rsi": 55}, 1, 0),
+        ("bollinger_reversion", {"close": 89, "bb_lower": 90, "bb_middle": 100}, 0, 1),
+        ("bollinger_reversion", {"close": 95, "bb_lower": 90, "bb_middle": 100}, 1, 1),
+        ("bollinger_reversion", {"close": 101, "bb_lower": 90, "bb_middle": 100}, 1, 0),
+        ("combined", {"close": 99, "ema": 98, "rsi": 40, "bb_middle": 100}, 0, 1),
+        ("combined", {"close": 99, "ema": 98, "rsi": 50, "bb_middle": 100}, 1, 0),
+    ],
+)
+def test_event_strategy_targets(strategy, row, current, expected):
+    from axiom.backtest.events import target
+
+    assert target({"ready": True, **row}, strategy, current) == expected
+    assert target({"ready": False, **row}, strategy, current) == 0
+
+
+def test_event_strategy_targets_go_short_only_when_allowed():
+    from axiom.backtest.events import target
+
+    row = {"ready": True, "close": 99, "ema": 100}
+    assert target(row, "ema_trend", 1, allow_short=False) == 0
+    assert target(row, "ema_trend", 1, allow_short=True) == -1
+    with pytest.raises(ValueError, match="Unknown strategy"):
+        target(row, "nope")
+
+
+def test_risk_rejects_disabled_short_and_nonpositive_equity():
+    account = Account(10000)
+    cfg = RiskConfig()
+    short = assess(account, "SPY", -10, 100, {"SPY": 100}, cfg, 10000, 10000, 0)
+    assert (short.action, short.units, short.reason) == ("REJECT", 0, "Short positions disabled")
+    account.fill("SPY", -100, 100, 0, "a", 0, "1")  # short 100 @ 100: cash 20000
+    # SPY doubles: equity = 20000 - 100 * 200 = 0, checked before the loss breakers.
+    broke = assess(account, "QQQ", 1, 100, {"SPY": 200}, cfg, 10000, 10000, 0)
+    assert (broke.action, broke.reason) == ("REJECT", "Nonpositive equity")
