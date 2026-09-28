@@ -24,6 +24,10 @@ services:
   api:
     build: .
     environment: *backend
+    # Host-side loopback-only exposure: this is the actual isolation boundary.
+    # The container binds 0.0.0.0 internally (see Dockerfile) so the
+    # `dashboard` service can reach it as http://api:8820 over the bridge
+    # network; that internal bind is not itself an external exposure.
     ports: ["127.0.0.1:8820:8820"]
     volumes: ["bars:/app/data", "reports:/app/reports"]
     depends_on:

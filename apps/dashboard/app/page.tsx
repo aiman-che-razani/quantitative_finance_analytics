@@ -189,7 +189,7 @@ function MarketPlot({ bars }: { bars: Bar[] }) {
   return (
     <section className="panel">
       <h2>Daily prices · EMA 200 · Bollinger 200 / 1.19</h2>
-      <div ref={element} />
+      <div ref={element} aria-label="Daily prices · EMA 200 · Bollinger 200 / 1.19" />
       <small>
         Last 3,000 sessions at most. Pan and zoom to inspect daily bars.
       </small>
@@ -622,8 +622,13 @@ export default function Workspace() {
             <button onClick={exportResult}>Export JSON ↓</button>
           </div>
           <p className="source">
-            {result.provenance?.provider} · Dataset{" "}
-            {result.provenance?.dataset_id.slice(0, 12)} · {result.id}
+            {result.provenance?.provider?.includes("synthetic")
+              ? "SYNTHETIC DATA — engineering demonstration, not observed market performance."
+              : result.provenance?.provider
+                ? "Provider: " + result.provenance.provider
+                : "—"}{" "}
+            · Dataset {result.provenance?.dataset_id?.slice(0, 12) ?? "—"} ·{" "}
+            {result.id}
           </p>
           {metrics && (
             <div className="metrics">
@@ -693,6 +698,10 @@ export default function Workspace() {
               <details className="panel">
                 <summary>Execution ledger</summary>
                 <Table rows={result.simulation.fills} />
+              </details>
+              <details className="panel">
+                <summary>Closed trades</summary>
+                <Table rows={result.simulation.trades} />
               </details>
               <details className="panel">
                 <summary>Risk decisions</summary>

@@ -10,11 +10,16 @@ from axiom import paper
 from axiom.api import create_app
 from axiom.backtest.events import ExecutionConfig, run_events
 from axiom.backtest.orders import Order
-from axiom.common.models import UNIVERSE
+from axiom.common.models import UNIVERSE, FeatureConfig
 from axiom.data.incremental import ingest_incremental
+from axiom.data.providers import SyntheticProvider
 from axiom.data.stable import StableSyntheticProvider
-from axiom.metadata import Base, database
-from axiom.ml.walkforward import splits
+from axiom.data.validation import validate
+from axiom.features.pipeline import FeaturePipeline
+from axiom.metadata import Base, ExperimentRow, PaperRow, database
+from axiom.ml.walkforward import splits, walk_forward
+from axiom.platform import run_experiment
+from axiom.risk.engine import RiskConfig
 from axiom.settings import Settings
 
 
@@ -62,6 +67,32 @@ def test_horizon_purges_and_nonoverlapping_test_windows():
         assert d - 1 + 5 < e
         assert e >= previous_end
         previous_end = f
+
+
+def test_walk_forward_reports_all_four_models():
+    # ~6 years of synthetic daily bars: enough past the 200-session feature
+    # warm-up for several purged folds (train=504/validation=126/test=126),
+    # without the ~17-fold cost a full multi-decade range would add.
+    start, end = date(2015, 1, 1), date(2021, 1, 1)
+    raw = SyntheticProvider().fetch(UNIVERSE[0], start, end)
+    frame, report = validate(raw, "SPY", start, end)
+    assert not report.missing_periods
+    features = FeaturePipeline(FeatureConfig()).transform(frame)
+    result = walk_forward(features, ExecutionConfig())
+    names = {"naive", "logistic", "random_forest", "xgboost"}
+    assert result["folds"], "expected at least one purged fold"
+    for fold in result["folds"]:
+        assert set(fold["models"]) == names
+        for metrics in fold["models"].values():
+            assert 0 <= metrics["accuracy"] <= 1
+            assert 0 <= metrics["balanced_accuracy"] <= 1
+            assert metrics["log_loss"] >= 0
+            if metrics["roc_auc"] is not None:
+                assert 0 <= metrics["roc_auc"] <= 1
+    assert set(result["out_of_sample_trading"]) == names
+    for trading in result["out_of_sample_trading"].values():
+        assert trading["equity"]
+        assert "sharpe" in trading["metrics"]
 
 
 @pytest.fixture
@@ -127,6 +158,121 @@ def test_incremental_overlap_and_paper_idempotency(pg):
     assert later["fills"][: len(state["fills"])] == state["fills"]
     with pytest.raises(ValueError, match="backwards"):
         paper.advance(sessions, settings, identity, date(2021, 1, 1))
+
+
+def test_paper_stale_input_alert(pg):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, dataset["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    # The dataset's last bar is near 2020-12-31; asking to advance to a much
+    # later date (with no newer bars available) should surface STALE_INPUT.
+    state = paper.advance(sessions, settings, identity, date(2021, 6, 1))
+    assert "STALE_INPUT" in state["alerts"]
+
+
+def test_paper_risk_rejection_alert(pg):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    # A concentration limit this tight caps the allowed position size below
+    # assess()'s own 1e-8 "insufficient capital" floor regardless of price
+    # (1e-9 alone is not tight enough against the 100000 default equity: it
+    # clips to a tiny but still-approvable MODIFY instead of a REJECT), so
+    # buy_hold's every attempted entry is rejected by the risk engine every
+    # bar, and the last risk decision at replay time should carry a REJECT.
+    identity = paper.create_account(
+        sessions,
+        dataset["dataset_id"],
+        ["SPY"],
+        "buy_hold",
+        ExecutionConfig(risk=RiskConfig(max_concentration=1e-15)),
+    )
+    state = paper.advance(sessions, settings, identity, date(2020, 12, 31))
+    assert "RISK_REJECTION" in state["alerts"]
+    assert "STALE_INPUT" not in state["alerts"]
+
+
+def test_record_tick_failure_merges_alerts(pg):
+    # This is the part of scripts/paper_tick.py's --loop failure handling that
+    # holds real logic (merge into existing alerts, don't clobber them);
+    # extracted to axiom.paper so it's testable without driving the script's
+    # CLI/sleep loop itself.
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, dataset["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    paper.record_tick_failure(sessions, identity, "boom")
+    with sessions() as db:
+        assert db.get(PaperRow, identity).state["alerts"] == ["TICK_FAILED"]
+    with sessions.begin() as db:
+        row = db.get(PaperRow, identity)
+        row.state = {**row.state, "alerts": ["STALE_INPUT"]}
+    paper.record_tick_failure(sessions, identity, "boom again")
+    with sessions() as db:
+        assert db.get(PaperRow, identity).state["alerts"] == ["STALE_INPUT", "TICK_FAILED"]
+    # A missing account is a no-op, not an error (the caller already logged it).
+    paper.record_tick_failure(sessions, "00000000-0000-0000-0000-000000000000", "boom")
+
+
+def test_experiment_provenance_is_recorded(pg):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    result = run_experiment(
+        sessions,
+        settings,
+        dataset["dataset_id"],
+        ["SPY"],
+        "buy_hold",
+        ExecutionConfig(),
+        FeatureConfig(),
+        "backtest",
+    )
+    provenance = result["provenance"]
+    assert provenance["dataset_id"] == dataset["dataset_id"]
+    assert provenance["provider"] == "test-stable"
+    assert provenance["code_commit"]
+    assert len(provenance["code_tree_sha256"]) == 64
+    assert provenance["config"]["strategy"] == "buy_hold"
+    assert provenance["config"]["symbols"] == ["SPY"]
+    assert provenance["created_at"]
+    with sessions() as db:
+        row = db.get(ExperimentRow, result["id"])
+        assert row.status == "SUCCEEDED"
+        assert row.result["provenance"]["dataset_id"] == dataset["dataset_id"]
 
 
 def test_api_requires_authentication(pg):

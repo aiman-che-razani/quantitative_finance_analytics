@@ -9,7 +9,7 @@ from axiom.data.incremental import ingest_incremental
 from axiom.data.providers import YahooProvider
 from axiom.data.universe import UNIVERSE_60
 from axiom.metadata import DatasetRow, PaperRow, database
-from axiom.paper import advance
+from axiom.paper import advance, record_tick_failure
 from axiom.settings import Settings
 
 parser = argparse.ArgumentParser()
@@ -72,13 +72,7 @@ while True:
     try:
         tick()
     except Exception as exc:
-        with sessions.begin() as db:
-            account = db.get(PaperRow, args.account)
-            if account is not None:
-                account.state = {
-                    **account.state,
-                    "alerts": sorted(set(account.state.get("alerts", [])) | {"TICK_FAILED"}),
-                }
+        record_tick_failure(sessions, args.account, str(exc))
         print(json.dumps({"alert": "TICK_FAILED", "error": str(exc)}), flush=True)
         if not args.loop:
             raise

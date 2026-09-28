@@ -30,11 +30,14 @@ class SnapshotStore:
         stage = target.with_name(identity + ".partial-" + str(uuid.uuid4()))
         parts = []
         partitioned = frame.with_columns(pl.col("timestamp").dt.year().alias("year"))
-        for (symbol, year), group in partitioned.partition_by(
-            ["instrument", "year"], as_dict=True
+        for (symbol, year, timeframe), group in partitioned.partition_by(
+            ["instrument", "year", "timeframe"], as_dict=True
         ).items():
+            # asset_class is fixed to "etf" because Instrument.asset_class is still a
+            # single-value Literal today (axiom/common/models.py); timeframe comes from
+            # the group key so a partition's path always matches its actual rows.
             relative = Path(
-                f"asset_class=etf/timeframe=1d/symbol={symbol}/year={year}/bars.parquet"
+                f"asset_class=etf/timeframe={timeframe}/symbol={symbol}/year={year}/bars.parquet"
             )
             output = stage / relative
             output.parent.mkdir(parents=True, exist_ok=True)

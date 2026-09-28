@@ -11,4 +11,8 @@ RUN uv sync --frozen --extra yahoo && useradd --uid 10001 --create-home axiom &&
 USER axiom
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8820
+# 0.0.0.0 here is required so the dashboard container can reach this one over
+# the Compose bridge network (apps/dashboard's AXIOM_API_URL=http://api:8820
+# is not loopback traffic). The real security boundary is the HOST port
+# mapping in compose.yaml ("127.0.0.1:8820:8820"), not this bind address.
 CMD ["uvicorn","axiom.api:create_app","--factory","--host","0.0.0.0","--port","8820"]

@@ -174,7 +174,9 @@ def create_app(settings=None):
         with sessions() as db:
             return [
                 {"id": r.id, "config": r.config, "state": r.state}
-                for r in db.scalars(select(PaperRow).limit(100))
+                for r in db.scalars(
+                    select(PaperRow).order_by(PaperRow.updated_at.desc()).limit(100)
+                )
             ]
 
     @app.post("/paper")

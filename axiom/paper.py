@@ -107,3 +107,19 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
         row.config = {**cfg, "dataset_id": dataset_id}
         row.updated_at = datetime.now(timezone.utc)
         return state
+
+
+def record_tick_failure(sessions, account_id: str, error: str) -> None:
+    """Mark a paper account TICK_FAILED after an uncaught error during a scheduled
+    tick (scripts/paper_tick.py's --loop). Merges into any alerts already on the
+    account rather than replacing them, so a failed tick doesn't erase a prior
+    STALE_INPUT/RISK_REJECTION the operator still needs to see. A missing account
+    is silently ignored: the caller has already logged the error and there is
+    nothing left to mark."""
+    with sessions.begin() as db:
+        account = db.get(PaperRow, account_id)
+        if account is not None:
+            account.state = {
+                **account.state,
+                "alerts": sorted(set(account.state.get("alerts", [])) | {"TICK_FAILED"}),
+            }

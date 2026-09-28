@@ -53,9 +53,7 @@ def main():
             password_file.unlink(missing_ok=True)
         (ROOT / ".env").write_text(
             f"DATABASE_URL=postgresql+psycopg://axiom:{password}@127.0.0.1:55442/postgres\n"
-            f"POSTGRES_PASSWORD={password}\nAPI_TOKEN={secrets.token_urlsafe(32)}\n"
-            f"WORKER_TOKEN={secrets.token_urlsafe(32)}\n"
-            "COORDINATOR_URL=http://127.0.0.1:8820\n",
+            f"POSTGRES_PASSWORD={password}\nAPI_TOKEN={secrets.token_urlsafe(32)}\n",
             encoding="utf-8",
         )
     run(

@@ -61,3 +61,51 @@ def test_short_leverage_reserves_commissions():
     decision = assess(account, "SPY", -200, 100, {"SPY": 100}, config, 10000, 10000, 0.01)
     account.fill("SPY", decision.units, 100, abs(decision.units) * 100 * 0.01, "a", 0, "1")
     assert account.mark({"SPY": 100})["leverage"] <= 1 + 1e-12
+
+
+@pytest.mark.parametrize(
+    "config_kwargs,peak,day_start",
+    [
+        (
+            {"max_drawdown": 0.05, "daily_loss_limit": 0.99, "portfolio_loss_limit": 0.99},
+            10000,
+            9000,
+        ),
+        (
+            {"max_drawdown": 0.99, "daily_loss_limit": 0.05, "portfolio_loss_limit": 0.99},
+            9000,
+            10000,
+        ),
+        (
+            {"max_drawdown": 0.99, "daily_loss_limit": 0.99, "portfolio_loss_limit": 0.05},
+            9000,
+            9000,
+        ),
+    ],
+    ids=["max_drawdown", "daily_loss_limit", "portfolio_loss_limit"],
+)
+def test_loss_circuit_breakers_reject_in_isolation(config_kwargs, peak, day_start):
+    # Long 100 SPY @ cost 100 (equity == account.initial == 10000), then marked
+    # down to 90: equity drops to 9000, a realized 10% loss. Each case tightens
+    # exactly one of the three loss-limit fields below that 10% and picks
+    # peak/day_start so the OTHER two ratios are exactly 0 (not just loose),
+    # isolating which check actually fires. The proposed order (+10, same
+    # direction as the existing +100 position) is not risk-reducing, so it
+    # reaches the equity/loss checks instead of being auto-approved.
+    a = Account(10000)
+    a.fill("SPY", 100, 100, 0, "t0", 0, "1")
+    cfg = RiskConfig(**config_kwargs)
+    decision = assess(a, "SPY", 10, 90, {"SPY": 90}, cfg, peak, day_start, 0)
+    assert decision.action == "REJECT"
+    assert decision.reason == "Portfolio loss circuit breaker"
+
+
+def test_loss_circuit_breakers_allow_within_limits():
+    # Same shape as above but a small 1% mark-to-market move and default
+    # thresholds: none of the three circuit breakers should fire, and the
+    # order should be approved/modified rather than rejected for any reason.
+    a = Account(10000)
+    a.fill("SPY", 10, 100, 0, "t0", 0, "1")
+    decision = assess(a, "SPY", 10, 90, {"SPY": 90}, RiskConfig(), 10000, 10000, 0)
+    assert decision.action in ("APPROVE", "MODIFY")
+    assert decision.reason != "Portfolio loss circuit breaker"

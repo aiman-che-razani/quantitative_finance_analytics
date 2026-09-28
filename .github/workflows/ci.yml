@@ -45,3 +45,40 @@ jobs:
           cache-dependency-path: apps/dashboard/package-lock.json
       - run: npm ci
       - run: npm run build
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate ephemeral Compose secrets
+        run: |
+          echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          echo "API_TOKEN=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+      - run: docker compose up --build -d
+      - name: Wait for the API to report healthy
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf -H "Authorization: Bearer $API_TOKEN" http://127.0.0.1:8820/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "API never became healthy" >&2
+          docker compose logs
+          exit 1
+      - run: docker compose exec -T api python scripts/demo_platform.py
+      - name: Wait for the dashboard to respond
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8821/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Dashboard never responded" >&2
+          docker compose logs
+          exit 1
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v

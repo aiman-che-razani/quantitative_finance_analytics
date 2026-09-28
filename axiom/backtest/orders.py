@@ -1,3 +1,6 @@
+"""Order objects and conservative daily-bar execution-price rules."""
+
+import math
 from dataclasses import dataclass
 from typing import Literal
 
@@ -13,8 +16,6 @@ class Order:
     triggered: bool = False
 
     def __post_init__(self):
-        import math
-
         if (
             not math.isfinite(self.units)
             or self.units == 0

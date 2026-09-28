@@ -74,7 +74,7 @@ p {
 }
 .summary strong {
   font:
-    36px "Space Grotesk",
+    500 36px "Space Grotesk",
     sans-serif;
   color: #a8ecb4;
 }
@@ -190,7 +190,7 @@ small {
 .metrics strong {
   display: block;
   font:
-    24px "Space Grotesk",
+    500 24px "Space Grotesk",
     sans-serif;
   margin-top: 12px;
 }
