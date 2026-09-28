@@ -211,7 +211,14 @@ def run_events(
                 hit_take = take and (
                     bars[s]["high"] >= take if direction > 0 else bars[s]["low"] <= take
                 )
-                if hit_stop or hit_take:
+                # A market exit decided at the prior close fills at this open, before the
+                # bar can reach the take-profit level, so it must not be upgraded to the limit.
+                exiting_at_open = (
+                    s in pending
+                    and pending[s].kind == "market"
+                    and np.sign(pending[s].units) == -direction
+                )
+                if hit_stop or (hit_take and not exiting_at_open):
                     counter += 1
                     pending[s] = Order(
                         str(counter),

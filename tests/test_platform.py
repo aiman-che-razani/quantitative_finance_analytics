@@ -531,3 +531,21 @@ def test_api_experiment_and_paper_round_trip(pg, monkeypatch):
     monkeypatch.setattr("axiom.api.threading.BoundedSemaphore", lambda n: busy)
     with TestClient(create_app(settings)) as client:
         assert client.post("/experiments", headers=headers, json=body).status_code == 429
+
+
+def test_take_profit_does_not_replace_a_market_exit_filling_at_the_open():
+    # Long from day 1; the day-2 close signals flat, so the exit fills at the day-3 open
+    # (101). Day 3's high of 120 must not upgrade that exit to the 5% take-profit limit.
+    frame = event_frame().with_columns(
+        pl.lit(1e9).alias("volume"),
+        pl.Series("prediction", [1, 1, 0, 0, 0]),
+        pl.Series("open", [100.0, 100.0, 100.0, 101.0, 101.0]),
+        pl.Series("high", [101.0, 101.0, 101.0, 120.0, 102.0]),
+    )
+    config = ExecutionConfig(
+        commission_bps=0, slippage_bps=0, spread_bps=0, participation=1, take_profit=0.05
+    )
+    result = run_events(frame, "ml", config)
+    exit_fill = result["fills"][1]
+    assert exit_fill["timestamp"].startswith("2020-01-04")
+    assert exit_fill["price"] == pytest.approx(101.0)
