@@ -105,7 +105,10 @@ button:hover {
 }
 button:disabled {
   opacity: 0.45;
-  cursor: wait;
+  cursor: not-allowed;
+}
+nav button:focus-visible {
+  outline-offset: -3px; /* nav scrolls, so an outside outline would be clipped */
 }
 nav button {
   background: none;
@@ -313,5 +316,8 @@ a {
   }
   nav button {
     padding: 13px 10px;
+  }
+  .heatmap {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
