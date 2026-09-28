@@ -12,6 +12,14 @@ DATA = RUNTIME / "postgres"
 BIN = Path(os.environ.get("POSTGRES_BIN", r"C:\Program Files\PostgreSQL\18\bin"))
 
 
+def write_secret(path: Path, text: str) -> None:
+    """Create or replace ``path`` readable by the owner only (mode ignored on Windows)."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    os.chmod(path, 0o600)  # O_CREAT's mode does not apply to a file that already existed
+
+
 def run(*args):
     subprocess.run(
         [str(BIN / args[0]), *args[1:]],
@@ -35,7 +43,7 @@ def main():
             )
         password = secrets.token_urlsafe(32)
         password_file = RUNTIME / "init-password"
-        password_file.write_text(password, encoding="utf-8")
+        write_secret(password_file, password)
         try:
             run(
                 "initdb",
@@ -51,10 +59,10 @@ def main():
             )
         finally:
             password_file.unlink(missing_ok=True)
-        (ROOT / ".env").write_text(
+        write_secret(
+            ROOT / ".env",
             f"DATABASE_URL=postgresql+psycopg://axiom:{password}@127.0.0.1:55442/postgres\n"
             f"POSTGRES_PASSWORD={password}\nAPI_TOKEN={secrets.token_urlsafe(32)}\n",
-            encoding="utf-8",
         )
     run(
         "pg_ctl",

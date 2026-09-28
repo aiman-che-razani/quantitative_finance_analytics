@@ -29,6 +29,8 @@ class ResearchRequest(BaseModel):
 
 
 class AdvanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     as_of: date
     dataset_id: str | None = Field(default=None, pattern="^[0-9a-f]{64}$")
 
@@ -44,7 +46,8 @@ def create_app(settings=None):
         engine.dispose()
 
     def auth(authorization: str = Header(default="")):
-        if not secrets.compare_digest(authorization, "Bearer " + settings.api_token):
+        expected = ("Bearer " + settings.api_token).encode()
+        if not secrets.compare_digest(authorization.encode(), expected):
             raise HTTPException(401, "Authentication required")
 
     app = FastAPI(

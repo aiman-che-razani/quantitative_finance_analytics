@@ -293,6 +293,17 @@ def test_api_requires_authentication(pg):
             ).status_code
             == 422
         )
+        # Non-ASCII credentials must fail closed as 401, not crash compare_digest.
+        assert client.get("/health", headers=[(b"authorization", b"Bearer \xe9")]).status_code == 401
+
+
+def test_advance_request_rejects_unknown_fields():
+    from pydantic import ValidationError
+
+    from axiom.api import AdvanceRequest
+
+    with pytest.raises(ValidationError):
+        AdvanceRequest.model_validate({"as_of": "2024-01-02", "bogus": 1})
 
 
 def test_mark_serialization_optimization_preserves_replay(monkeypatch):
