@@ -16,4 +16,4 @@ The [README](../README.md) defines the tested scope and run commands. [Validatio
 - Public authentication, authorization, quotas and managed backups before external hosting.
 - Additional ML datasets and embargo-aware model selection across research campaigns.
 
-Real-money automated execution remains outside the implemented scope. The portfolio replacement is on its `dev` branch; production deployment is a separate operation.
+Real-money automated execution remains outside the implemented scope. The portfolio replacement is live on nadeemrazani.com; later showcase updates reach production only when the portfolio's `dev` branch is promoted.

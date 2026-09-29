@@ -235,7 +235,8 @@ function MarketPlot({ bars }: { bars: Bar[] }) {
   );
 }
 function Table({ rows }: { rows: Record<string, unknown>[] }) {
-  const columns = Object.keys(rows[0] || {});
+  if (!rows.length) return <p className="source">No rows.</p>;
+  const columns = Object.keys(rows[0]);
   return (
     <div className="scroll">
       <table>
@@ -649,6 +650,11 @@ export default function Workspace() {
                 </tr>
               </thead>
               <tbody>
+                {!experiments.length && (
+                  <tr>
+                    <td colSpan={5}>No experiments yet. Run one from Research.</td>
+                  </tr>
+                )}
                 {experiments.map((e) => (
                   <tr key={e.id}>
                     <td>
@@ -715,6 +721,7 @@ export default function Workspace() {
           >
             Create paper account
           </button>
+          {!papers.length && <p>No paper accounts yet.</p>}
           {papers.map((p) => (
             <article className="paper" key={p.id}>
               <code>{p.id}</code>
@@ -785,9 +792,7 @@ export default function Workspace() {
               <button onClick={exportResult}>Export JSON ↓</button>
             </div>
             <p className="source">
-              {result.provenance?.provider
-                ? provenanceNote(result.provenance.provider)
-                : "—"}{" "}
+              {provenanceNote(result.provenance?.provider)}{" "}
               · Dataset {result.provenance?.dataset_id?.slice(0, 12) ?? "—"} ·{" "}
               {result.id}
             </p>
@@ -881,7 +886,7 @@ export default function Workspace() {
             )}
             {result.out_of_sample_trading &&
               Object.entries(result.out_of_sample_trading).map(([name, r]) => (
-                <section key={name}>
+                <section className="panel" key={name}>
                   <h2>{name} · Out-of-sample trading</h2>
                   <p>
                     Total return {pct(r.metrics.total_return)} · Drawdown{" "}

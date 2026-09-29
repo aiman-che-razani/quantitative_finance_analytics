@@ -1,6 +1,14 @@
 import numpy as np
+import pytest
 
-from axiom.features.kernels import numba_mean, numpy_mean, polars_mean, python_mean
+from axiom.features.kernels import (
+    native_library,
+    native_mean,
+    numba_mean,
+    numpy_mean,
+    polars_mean,
+    python_mean,
+)
 
 
 def test_rolling_kernels_agree_on_warmup_and_values():
@@ -11,19 +19,7 @@ def test_rolling_kernels_agree_on_warmup_and_values():
 
 
 def test_native_matches_reference_when_built():
-    import os
-    from pathlib import Path
-
-    import pytest
-
-    from axiom.features.kernels import native_mean
-
-    library = (
-        Path(__file__).resolve().parents[1]
-        / "native"
-        / ("rolling.dll" if os.name == "nt" else "rolling.so")
-    )
-    if not library.exists():
+    if not native_library().exists():
         pytest.skip("Run scripts/build_native.py first")
     values = np.random.default_rng(17).normal(size=1000)
     np.testing.assert_allclose(

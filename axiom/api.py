@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from typing import Annotated, Literal
 
+import polars as pl
 from fastapi import Depends, FastAPI, Header, HTTPException, Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, text
@@ -14,6 +15,9 @@ from sqlalchemy.orm import defer
 from axiom import paper
 from axiom.backtest.events import STRATEGIES, ExecutionConfig
 from axiom.common.models import FeatureConfig
+from axiom.data.storage import SnapshotStore
+from axiom.features.kernels import native_library
+from axiom.features.pipeline import FeaturePipeline
 from axiom.metadata import DatasetRow, ExperimentRow, InstrumentRow, PaperRow, database
 from axiom.platform import run_experiment
 from axiom.settings import Settings
@@ -36,6 +40,14 @@ class PaperRequest(BaseModel):
         if len(set(symbols)) != len(symbols):
             raise ValueError("Duplicate symbols")
         return symbols
+
+    @field_validator("features")
+    @classmethod
+    def native_backend_built(cls, features: FeatureConfig) -> FeatureConfig:
+        # Reject before an account or FAILED experiment row exists (e.g. in Docker).
+        if features.rolling_backend == "native" and not native_library().exists():
+            raise ValueError("native rolling kernel is not built on this machine")
+        return features
 
 
 class ResearchRequest(PaperRequest):
@@ -64,9 +76,21 @@ def create_app(settings=None):
         if not secrets.compare_digest(authorization.encode(), expected):
             raise HTTPException(401, "Authentication required")
 
+    # FastAPI's built-in /docs, /redoc and /openapi.json bypass app dependencies, so
+    # they are disabled and the schema is served below behind the token instead.
     app = FastAPI(
-        title="Axiom Research", version="1.0.0", dependencies=[Depends(auth)], lifespan=lifespan
+        title="Axiom Research",
+        version="1.0.0",
+        dependencies=[Depends(auth)],
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
+
+    @app.get("/openapi.json", include_in_schema=False)
+    def schema():
+        return app.openapi()
 
     @app.get("/health")
     def health():
@@ -101,18 +125,17 @@ def create_app(settings=None):
 
     @app.get("/market/{identity}")
     def market(identity: DatasetId, symbol: str = "SPY"):
-        import polars as pl
-
-        from axiom.data.storage import SnapshotStore
-        from axiom.features.pipeline import FeaturePipeline
-
         with sessions() as db:
             dataset = db.get(DatasetRow, identity)
             if dataset is None or symbol not in dataset.symbols:
                 raise HTTPException(404, "Unknown dataset or symbol")
-        bars = (
-            SnapshotStore(settings.data_root).read(identity).filter(pl.col("instrument") == symbol)
-        )
+        try:
+            snapshot = SnapshotStore(settings.data_root).read(identity)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Dataset snapshot is missing") from exc
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        bars = snapshot.filter(pl.col("instrument") == symbol)
         features = FeaturePipeline(FeatureConfig()).transform(bars)
         return (
             features.select(

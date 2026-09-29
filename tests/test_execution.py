@@ -1,5 +1,6 @@
 import pytest
 
+from axiom.backtest.events import target
 from axiom.backtest.orders import Order, execution_price
 from axiom.portfolio.account import Account
 from axiom.risk.engine import RiskConfig, assess
@@ -131,15 +132,11 @@ def test_loss_circuit_breakers_allow_within_limits():
     ],
 )
 def test_event_strategy_targets(strategy, row, current, expected):
-    from axiom.backtest.events import target
-
     assert target({"ready": True, **row}, strategy, current) == expected
     assert target({"ready": False, **row}, strategy, current) == 0
 
 
 def test_event_strategy_targets_go_short_only_when_allowed():
-    from axiom.backtest.events import target
-
     row = {"ready": True, "close": 99, "ema": 100}
     assert target(row, "ema_trend", 1, allow_short=False) == 0
     assert target(row, "ema_trend", 1, allow_short=True) == -1

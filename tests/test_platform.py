@@ -1,15 +1,18 @@
 import os
+import shutil
 import threading
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import numpy as np
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 from sqlalchemy.orm import sessionmaker
 
 from axiom import paper
-from axiom.api import create_app
+from axiom.api import AdvanceRequest, ResearchRequest, create_app
 from axiom.backtest.events import ExecutionConfig, run_events
 from axiom.backtest.orders import Order
 from axiom.common.models import UNIVERSE, FeatureConfig
@@ -18,9 +21,10 @@ from axiom.data.providers import SyntheticProvider
 from axiom.data.stable import StableSyntheticProvider
 from axiom.data.validation import validate
 from axiom.features.pipeline import FeaturePipeline
-from axiom.metadata import Base, ExperimentRow, PaperRow, database
+from axiom.metadata import Base, ExperimentRow, HeadRow, PaperRow, database
 from axiom.ml.walkforward import null_auc, random_walk_surrogate, splits, walk_forward
 from axiom.platform import run_experiment
+from axiom.portfolio.account import Account
 from axiom.risk.engine import RiskConfig
 from axiom.settings import Settings
 
@@ -337,17 +341,11 @@ def test_api_rejects_duplicate_symbols_and_unknown_accounts(pg):
 
 
 def test_advance_request_rejects_unknown_fields():
-    from pydantic import ValidationError
-
-    from axiom.api import AdvanceRequest
-
     with pytest.raises(ValidationError):
         AdvanceRequest.model_validate({"as_of": "2024-01-02", "bogus": 1})
 
 
 def test_mark_serialization_optimization_preserves_replay(monkeypatch):
-    from axiom.portfolio.account import Account
-
     config = ExecutionConfig(participation=0.1)
     optimized = run_events(event_frame(), "buy_hold", config)
     original = Account.mark
@@ -479,8 +477,6 @@ def test_failed_experiment_is_recorded_as_failed(pg):
 
 
 def test_incremental_conflicting_overlap_is_rejected_and_head_unchanged(pg):
-    from axiom.metadata import HeadRow
-
     sessions, settings = pg
     first = ingest_incremental(
         sessions,
@@ -717,3 +713,45 @@ def test_incremental_ingest_rejects_a_gap_and_keeps_the_head(pg):
         "gap",
     )
     assert again["dataset_id"] == first["dataset_id"]
+
+
+def test_api_schema_needs_the_token_and_builtin_docs_are_off(tmp_path, monkeypatch):
+    settings = Settings(
+        database_url="postgresql+psycopg://u:p@127.0.0.1:1/x",
+        api_token="test-token-01234567890123456789",
+        data_root=tmp_path,
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/openapi.json").status_code == 401
+        assert client.get("/docs").status_code in (401, 404)
+        assert client.get("/redoc").status_code in (401, 404)
+        schema = client.get(
+            "/openapi.json", headers={"Authorization": "Bearer " + settings.api_token}
+        )
+        assert schema.status_code == 200 and "/experiments" in schema.json()["paths"]
+
+
+def test_native_backend_is_rejected_at_the_boundary_when_not_built(monkeypatch):
+    monkeypatch.setattr("axiom.api.native_library", lambda: Path("missing-rolling-kernel"))
+    body = {"dataset_id": "0" * 64, "symbols": ["SPY"], "features": {"rolling_backend": "native"}}
+    with pytest.raises(ValidationError, match="not built"):
+        ResearchRequest.model_validate(body)
+
+
+def test_market_reports_a_missing_snapshot_as_404(pg, monkeypatch):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    shutil.rmtree(settings.data_root / "validated" / dataset["dataset_id"])
+    monkeypatch.setattr("axiom.api.database", lambda url: (sessions.kw["bind"].engine, sessions))
+    headers = {"Authorization": "Bearer " + settings.api_token}
+    with TestClient(create_app(settings)) as client:
+        missing = client.get(f"/market/{dataset['dataset_id']}?symbol=SPY", headers=headers)
+        assert missing.status_code == 404

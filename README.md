@@ -24,7 +24,7 @@ Open **http://127.0.0.1:8821**. The authenticated API is on port 8820. Credentia
 
 ## Install elsewhere
 
-Requires Python 3.12+ (`pyproject.toml`), Node.js and PostgreSQL 18. Development uses Python 3.12 on Windows; the Docker images ship Python 3.14 and Node 26. CI is configured to test Python 3.12 and 3.14, a Windows job and a Node 26 dashboard build; those jobs were added on the `audit-fixes-2` branch and have not yet been observed passing.
+Requires Python 3.12+ (`pyproject.toml`), Node.js and PostgreSQL 18. Development uses Python 3.12 on Windows; the Docker images ship Python 3.14 and Node 26. CI tests Python 3.12 and 3.14 (with PostgreSQL), a Windows job and a Node 26 dashboard build; all of them passed on the `audit-fixes-2` branch (runs 36515900426 and 36515956881).
 
 ```sh
 uv sync --frozen --extra dev --extra yahoo
@@ -82,7 +82,7 @@ Bars remain in partitioned Parquet. PostgreSQL stores instrument definitions, da
 5. Use **Market data** for candlesticks, EMA/Bollinger overlays and OHLCV/RSI inspection.
 6. Use one instrument in **ML research**; this implementation deliberately does not mix cross-sectional rows into chronological splits.
 
-API requests require `Authorization: Bearer <API_TOKEN>`. Routes include `/health`, `/datasets`, `/instruments`, `/market/{dataset_id}?symbol=SPY`, `/strategies`, `/experiments`, `/experiments/{id}`, `/paper`, and `/paper/{id}/advance`. API reference is available through FastAPI's `/docs`; requests still require the token. Research POSTs are synchronous with durable status records and a bounded per-process admission gate. A lost browser connection does not imply the run failed: check history before retrying. After a process crash, stop workers and use `scripts/recover_runs.py` to mark old orphaned RUNNING records INTERRUPTED. There is no distributed task queue or automatic job resumption.
+API requests require `Authorization: Bearer <API_TOKEN>`. Routes include `/health`, `/datasets`, `/instruments`, `/market/{dataset_id}?symbol=SPY`, `/strategies`, `/experiments`, `/experiments/{id}`, `/paper`, and `/paper/{id}/advance`. The OpenAPI schema is served at `/openapi.json` behind the same token; FastAPI's interactive `/docs` and `/redoc` pages are disabled because they bypass app-level auth. Research POSTs are synchronous with durable status records and a bounded per-process admission gate. A lost browser connection does not imply the run failed: check history before retrying. After a process crash, stop workers and use `scripts/recover_runs.py` to mark old orphaned RUNNING records INTERRUPTED. There is no distributed task queue or automatic job resumption.
 
 ## Data and paper execution
 

@@ -178,10 +178,19 @@ schema validation alone does not catch it.
 Every model sets `extra="forbid"`, so an unknown field anywhere in a POST body
 is a `422`, not silently ignored.
 
-## `/docs` and `/openapi.json`
+## `/openapi.json`
 
-FastAPI's defaults, behind the same bearer auth (so a browser can't open
-`/docs` without a header-injecting tool). The repo requires Python 3.12+
+FastAPI's built-in `/docs`, `/redoc` and `/openapi.json` bypass app-level
+dependencies, so `create_app` disables all three and serves the schema from its
+own `GET /openapi.json` route behind the bearer token (`include_in_schema=False`).
+`/docs` and `/redoc` no longer exist (404). Tested by
+`test_api_schema_needs_the_token_and_builtin_docs_are_off`.
+
+Also since 0e88254: `GET /market/{id}` returns 404 when the snapshot directory
+is missing and 422 when it fails integrity checks (was 500); a request whose
+`features.rolling_backend` is `native` on a machine without the built library is
+a 422 at validation, before any account or experiment row is written; and the
+proxy answers 411 to a POST without `Content-Length`. The repo requires Python 3.12+
 (`pyproject.toml:9`); no FastAPI/Pydantic version caveat applies.
 
 ## Next.js proxy (`apps/dashboard/app/api/[...path]/route.ts`)

@@ -34,6 +34,9 @@ class SnapshotStore:
         target = self.root / "validated" / identity
         if (target / "manifest.json").exists():
             if _parts_intact(target):
+                # Reuse counts as fresh, so prune's age guard protects it until the
+                # caller's dataset row commits.
+                os.utime(target)
                 return identity
             # A torn or corrupted publish must not be permanent: set it aside for
             # inspection and republish the same content from this verified frame.
@@ -49,8 +52,9 @@ class SnapshotStore:
             stage.rename(target)
         except OSError:
             shutil.rmtree(stage, ignore_errors=True)
-            # A concurrent writer published the same content-addressed snapshot first.
-            if (target / "manifest.json").exists():
+            # A concurrent writer published the same content first. A corrupt copy
+            # that could not be set aside must not be reported as published.
+            if _parts_intact(target):
                 return identity
             raise
         except BaseException:

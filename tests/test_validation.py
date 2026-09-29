@@ -6,9 +6,11 @@ from datetime import UTC, date, datetime
 import polars as pl
 import pytest
 
+from axiom.common.models import UNIVERSE
 from axiom.data import storage
+from axiom.data.providers import CSVProvider
 from axiom.data.storage import SnapshotStore
-from axiom.data.validation import validate
+from axiom.data.validation import parse_time, validate
 
 
 def check(frame):
@@ -103,10 +105,6 @@ def test_rewriting_a_corrupted_snapshot_repairs_it(bars, tmp_path):
 
 
 def test_timestamp_validation_and_csv_roundtrip(bars, tmp_path):
-    from axiom.common.models import UNIVERSE
-    from axiom.data.providers import CSVProvider
-    from axiom.data.validation import parse_time
-
     bars.write_csv(tmp_path / "SPY.csv")
     imported = CSVProvider(tmp_path).fetch(UNIVERSE[0], date(2020, 1, 1), date(2022, 1, 1))
     clean, report = check(imported)
@@ -164,3 +162,21 @@ def test_snapshot_read_rejects_parts_with_rewritten_hashes(bars, tmp_path):
 def test_snapshot_write_rejects_an_empty_frame(bars, tmp_path):
     with pytest.raises(ValueError, match="empty"):
         SnapshotStore(tmp_path).write(bars.head(0))
+
+
+def test_write_does_not_report_an_unhealed_corrupt_snapshot(bars, tmp_path, monkeypatch):
+    store = SnapshotStore(tmp_path)
+    identity = store.write(bars)
+    root = tmp_path / "validated" / identity
+    part = next(root.rglob("*.parquet"))
+    part.write_bytes(part.read_bytes() + b"x")
+    real_rename = storage.Path.rename
+
+    def blocked(self, target):
+        if ".corrupt-" in str(target):
+            raise PermissionError("file in use")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(storage.Path, "rename", blocked)
+    with pytest.raises(OSError):
+        store.write(bars)

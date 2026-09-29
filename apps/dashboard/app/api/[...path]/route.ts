@@ -46,6 +46,9 @@ async function proxy(
       { detail: "API_TOKEN is not configured on the dashboard server" },
       { status: 503 },
     );
+  // A POST must declare its size, so an unbounded chunked body is never buffered.
+  if (req.method === "POST" && req.headers.get("content-length") === null)
+    return Response.json({ detail: "Content-Length required" }, { status: 411 });
   if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES)
     return Response.json({ detail: "Request too large" }, { status: 413 });
   const body = req.method === "POST" ? await req.text() : undefined;
