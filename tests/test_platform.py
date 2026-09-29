@@ -93,6 +93,26 @@ def test_walk_forward_reports_all_four_models():
     for trading in result["out_of_sample_trading"].values():
         assert trading["equity"]
         assert "sharpe" in trading["metrics"]
+    assert set(result["pooled_test_auc"]) == names
+
+
+def test_random_walk_surrogate_keeps_shape_and_volatility():
+    import numpy as np
+
+    from axiom.ml.walkforward import random_walk_surrogate
+
+    start, end = date(2015, 1, 1), date(2021, 1, 1)
+    frame, _ = validate(SyntheticProvider().fetch(UNIVERSE[0], start, end), "SPY", start, end)
+    surrogate = random_walk_surrogate(frame, seed=3)
+    assert surrogate.height == frame.height
+    assert surrogate["volume"].to_list() == frame.sort("timestamp")["volume"].to_list()
+    assert (surrogate["high"] >= surrogate["low"]).all()
+
+    def vol(f):
+        return float(np.std(np.diff(np.log(f["close"].to_numpy())), ddof=1))
+
+    assert vol(surrogate) == pytest.approx(vol(frame), rel=0.1)
+    assert random_walk_surrogate(frame, seed=3)["close"].to_list() == surrogate["close"].to_list()
 
 
 @pytest.fixture
@@ -235,7 +255,9 @@ def test_record_tick_failure_merges_alerts(pg):
         row.state = {**row.state, "alerts": ["STALE_INPUT"]}
     paper.record_tick_failure(sessions, identity, "boom again")
     with sessions() as db:
-        assert db.get(PaperRow, identity).state["alerts"] == ["STALE_INPUT", "TICK_FAILED"]
+        state = db.get(PaperRow, identity).state
+        assert state["alerts"] == ["STALE_INPUT", "TICK_FAILED"]
+        assert state["last_error"] == "boom again"
     # A missing account is a no-op, not an error (the caller already logged it).
     paper.record_tick_failure(sessions, "00000000-0000-0000-0000-000000000000", "boom")
 
@@ -525,7 +547,15 @@ def test_api_experiment_and_paper_round_trip(pg, monkeypatch):
         backwards = client.post(
             f"/paper/{account}/advance", headers=headers, json={"as_of": "2020-06-01"}
         )
-        assert backwards.status_code == 422
+        assert backwards.status_code == 409
+        tuned = client.post(
+            "/paper", headers=headers, json={**body, "features": {"ema_period": 50}}
+        ).json()["id"]
+        with sessions() as db:
+            assert db.get(PaperRow, tuned).config["features"]["ema_period"] == 50
+        assert (
+            client.post("/paper", headers=headers, json={**body, "kind": "ml"}).status_code == 422
+        )
     busy = threading.BoundedSemaphore(1)
     busy.acquire()
     monkeypatch.setattr("axiom.api.threading.BoundedSemaphore", lambda n: busy)
@@ -549,3 +579,12 @@ def test_take_profit_does_not_replace_a_market_exit_filling_at_the_open():
     exit_fill = result["fills"][1]
     assert exit_fill["timestamp"].startswith("2020-01-04")
     assert exit_fill["price"] == pytest.approx(101.0)
+
+
+def test_fill_size_is_capped_by_prior_bar_volume_not_execution_day_volume():
+    # The day-2 open fill may only use volume known at the day-1 close.
+    frame = event_frame().with_columns(pl.Series("volume", [100.0, 1e9, 1e9, 1e9, 1e9]))
+    config = ExecutionConfig(commission_bps=0, slippage_bps=0, spread_bps=0, participation=0.1)
+    first = run_events(frame, "buy_hold", config)["fills"][0]
+    assert first["timestamp"].startswith("2020-01-02")
+    assert first["units"] == pytest.approx(10.0)

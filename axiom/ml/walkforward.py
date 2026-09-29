@@ -39,7 +39,13 @@ def splits(length, train=504, validation=126, test=126, horizon=5):
 
 
 def walk_forward(
-    frame: pl.DataFrame, execution: ExecutionConfig, horizon=5, train=504, validation=126, test=126
+    frame: pl.DataFrame,
+    execution: ExecutionConfig,
+    horizon=5,
+    train=504,
+    validation=126,
+    test=126,
+    trade=True,
 ):
     if frame["instrument"].n_unique() != 1:
         raise ValueError("Walk-forward research currently requires one instrument")
@@ -58,6 +64,8 @@ def walk_forward(
     predictions: dict[str, list[tuple[datetime, int]]] = {
         name: [] for name in ["naive", "logistic", "random_forest", "xgboost"]
     }
+    pooled: dict[str, list[float]] = {name: [] for name in predictions}
+    pooled_labels: list[int] = []
     folds = []
     for a, b, c, d, e, f in splits(len(data), train, validation, test, horizon):
         if len(np.unique(y[a:b])) < 2 or len(np.unique(y[c:d])) < 2:
@@ -117,9 +125,19 @@ def walk_forward(
                 else None,
             }
             predictions[name].extend(zip(data["timestamp"][e:f].to_list(), prediction.tolist()))
+            pooled[name].extend(probability.tolist())
+        pooled_labels.extend(y[e:f].tolist())
         folds.append(fold)
     if not folds:
         raise ValueError("Insufficient history for a complete purged fold")
+    # Per-fold AUC on a short window is biased above 0.5 even without signal; pooling
+    # over all test rows shrinks (but does not remove) that bias. Compare with null_auc().
+    pooled_auc = {
+        name: float(roc_auc_score(pooled_labels, scores)) if len(set(pooled_labels)) == 2 else None
+        for name, scores in pooled.items()
+    }
+    if not trade:
+        return {"folds": folds, "pooled_test_auc": pooled_auc}
     trading = {}
     for name, pairs in predictions.items():
         # Predictions are available at the close; the engine fills on the next open.
@@ -146,6 +164,47 @@ def walk_forward(
         "horizon": horizon,
         "seed": 42,
         "folds": folds,
+        "pooled_test_auc": pooled_auc,
         "out_of_sample_trading": trading,
         "assumptions": "Single instrument; expanding training; horizon purge at both boundaries; no test-driven tuning; next-open fills; no model refit on validation.",
+    }
+
+
+def random_walk_surrogate(bars: pl.DataFrame, seed: int) -> pl.DataFrame:
+    """Replace one instrument's prices with a driftless Gaussian random walk whose daily
+    log-return volatility matches the original; bar shape (open/high/low relative to
+    close) and volume are kept. No feature can predict its forward returns."""
+    bars = bars.sort("timestamp")
+    close = bars["close"].to_numpy()
+    sigma = float(np.std(np.diff(np.log(close)), ddof=1))
+    steps = np.random.default_rng(seed).normal(0.0, sigma, len(close) - 1)
+    walk = close[0] * np.exp(np.concatenate([[0.0], np.cumsum(steps)]))
+    scale = walk / close
+    return bars.with_columns((pl.col(c) * scale).alias(c) for c in ("open", "high", "low", "close"))
+
+
+def null_auc(bars: pl.DataFrame, features, surrogates=20, seed=0, **split_options) -> dict:
+    """Pooled test AUC each model reaches on random-walk surrogates of ``bars``.
+
+    A real study's pooled AUC is only evidence of skill if it clears ``p95`` here, not 0.5.
+    """
+    from axiom.features.pipeline import FeaturePipeline
+
+    runs: dict[str, list[float]] = {}
+    for k in range(surrogates):
+        frame = FeaturePipeline(features).transform(random_walk_surrogate(bars, seed + k))
+        result = walk_forward(frame, ExecutionConfig(), trade=False, **split_options)
+        for name, value in result["pooled_test_auc"].items():
+            if value is not None:
+                runs.setdefault(name, []).append(value)
+    return {
+        "surrogates": surrogates,
+        "method": "driftless Gaussian random walk, volatility matched to the input closes",
+        "models": {
+            name: {
+                "mean": float(np.mean(values)),
+                "p95": float(np.percentile(values, 95)),
+            }
+            for name, values in runs.items()
+        },
     }

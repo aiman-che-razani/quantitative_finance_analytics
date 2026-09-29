@@ -1,3 +1,5 @@
+"""Extended portfolio analytics: risk, drawdown, rolling and benchmark-relative metrics."""
+
 from datetime import datetime
 
 import numpy as np

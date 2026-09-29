@@ -24,7 +24,7 @@ def run(*args):
     subprocess.run(
         [str(BIN / args[0]), *args[1:]],
         check=True,
-        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows-only flag
     )
 
 

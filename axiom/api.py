@@ -22,14 +22,13 @@ DatasetId = Annotated[str, Path(pattern="^[0-9a-f]{64}$")]
 RecordId = Annotated[str, Path(pattern="^[0-9a-f-]{36}$")]
 
 
-class ResearchRequest(BaseModel):
+class PaperRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset_id: str = Field(pattern="^[0-9a-f]{64}$")
     symbols: list[str] = Field(min_length=1, max_length=342)
     strategy: str = "ema_trend"
     execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
     features: FeatureConfig = Field(default_factory=FeatureConfig)
-    kind: Literal["backtest", "ml"] = "backtest"
 
     @field_validator("symbols")
     @classmethod
@@ -37,6 +36,10 @@ class ResearchRequest(BaseModel):
         if len(set(symbols)) != len(symbols):
             raise ValueError("Duplicate symbols")
         return symbols
+
+
+class ResearchRequest(PaperRequest):
+    kind: Literal["backtest", "ml"] = "backtest"
 
 
 class AdvanceRequest(BaseModel):
@@ -197,7 +200,7 @@ def create_app(settings=None):
             ]
 
     @app.post("/paper")
-    def new_account(request: ResearchRequest):
+    def new_account(request: PaperRequest):
         if request.strategy not in STRATEGIES or request.strategy == "ml":
             raise HTTPException(422, "Unknown paper strategy")
         try:
@@ -208,6 +211,7 @@ def create_app(settings=None):
                     request.symbols,
                     request.strategy,
                     request.execution,
+                    request.features,
                 )
             }
         except ValueError as exc:
@@ -221,6 +225,8 @@ def create_app(settings=None):
             return paper.advance(sessions, settings, identity, request.as_of, request.dataset_id)
         except LookupError as exc:
             raise HTTPException(404, str(exc)) from exc
+        except paper.PaperConflict as exc:
+            raise HTTPException(409, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         finally:

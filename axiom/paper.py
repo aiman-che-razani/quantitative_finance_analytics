@@ -13,11 +13,16 @@ from axiom.data.storage import SnapshotStore
 from axiom.features.pipeline import FeaturePipeline
 from axiom.metadata import DatasetRow, PaperRow
 
+
+class PaperConflict(ValueError):
+    """The request is valid but conflicts with the account's recorded state (HTTP 409)."""
+
+
 # Calendar days without a new bar after which a paper account is flagged STALE_INPUT.
 STALE_AFTER_DAYS = 4
 
 
-def create_account(sessions, dataset_id, symbols, strategy, execution):
+def create_account(sessions, dataset_id, symbols, strategy, execution, features=None):
     identity = str(uuid.uuid4())
     with sessions.begin() as db:
         dataset = db.get(DatasetRow, dataset_id)
@@ -31,6 +36,7 @@ def create_account(sessions, dataset_id, symbols, strategy, execution):
                     "symbols": symbols,
                     "strategy": strategy,
                     "execution": execution.model_dump(),
+                    "features": (features or FeatureConfig()).model_dump(),
                 },
                 state={"last_session": None, "alerts": [], "fills": []},
             )
@@ -76,10 +82,10 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
         last = row.state.get("last_session")
         if last:
             if as_of.isoformat() < last:
-                raise ValueError("Paper clock cannot move backwards")
+                raise PaperConflict("Paper clock cannot move backwards")
             prefix = bars.filter(pl.col("timestamp").dt.strftime("%Y-%m-%d") <= last)
             if fingerprint(prefix) != row.state["input_hash"]:
-                raise ValueError("Previously processed bars changed")
+                raise PaperConflict("Previously processed bars changed")
             if latest_stamp.date().isoformat() == last:
                 alerts = [a for a in row.state.get("alerts", []) if a != "STALE_INPUT"]
                 if (as_of - latest_stamp.date()).days > STALE_AFTER_DAYS:
@@ -87,7 +93,8 @@ def advance(sessions, settings, identity, as_of, dataset_id=None):
                 row.state = {**row.state, "alerts": alerts}
                 row.updated_at = datetime.now(timezone.utc)
                 return row.state
-        frame = FeaturePipeline(FeatureConfig()).transform(bars)
+        # Accounts created before features were stored replay with the defaults.
+        frame = FeaturePipeline(FeatureConfig(**cfg.get("features", {}))).transform(bars)
         replay = run_events(
             frame, cfg["strategy"], ExecutionConfig(**cfg["execution"]), record_events=False
         )
@@ -121,7 +128,8 @@ def record_tick_failure(sessions, account_id: str, error: str) -> None:
     """Mark a paper account TICK_FAILED after an uncaught error during a scheduled
     tick (scripts/paper_tick.py's --loop). Merges into any alerts already on the
     account rather than replacing them, so a failed tick doesn't erase a prior
-    STALE_INPUT/RISK_REJECTION the operator still needs to see. A missing account
+    STALE_INPUT/RISK_REJECTION the operator still needs to see. The error text is
+    kept as ``last_error`` (truncated like ExperimentRow.error). A missing account
     is silently ignored: the caller has already logged the error and there is
     nothing left to mark."""
     with sessions.begin() as db:
@@ -130,4 +138,5 @@ def record_tick_failure(sessions, account_id: str, error: str) -> None:
             account.state = {
                 **account.state,
                 "alerts": sorted(set(account.state.get("alerts", [])) | {"TICK_FAILED"}),
+                "last_error": error[:1000],
             }

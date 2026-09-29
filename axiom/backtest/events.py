@@ -195,7 +195,9 @@ def run_events(
         bars = {s: groups[s][i] for s in symbols}
         marks = {s: bar["open"] for s, bar in bars.items()}
         day_start = last_equity
-        liquidity = {s: float(bars[s]["volume"]) * config.participation for s in symbols}
+        # Orders fill at the open, so cap size on the last completed bar's volume: this
+        # bar's full-day volume is not known until its close.
+        liquidity = {s: float(groups[s][i - 1]["volume"]) * config.participation for s in symbols}
         for s in symbols:
             event("MARKET", timestamp=str(stamps[i]), symbol=s)
             p = account.positions.get(s)

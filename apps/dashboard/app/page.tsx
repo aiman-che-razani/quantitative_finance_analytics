@@ -45,13 +45,15 @@ type Experiment = {
 };
 type Paper = {
   id: string;
+  config: { dataset_id: string; symbols: string[]; strategy: string };
   state: {
     last_session: string | null;
     alerts: string[];
+    last_error?: string;
     account?: { equity: number };
   };
 };
-async function api(path: string, body?: unknown) {
+async function api<T>(path: string, body?: unknown): Promise<T> {
   let r: Response;
   try {
     r = await fetch(
@@ -94,7 +96,7 @@ async function api(path: string, body?: unknown) {
     throw new Error(
       "Research API returned an unreadable response. Check experiment history before retrying.",
     );
-  return data as any;
+  return data as T;
 }
 function Plot({
   rows,
@@ -269,6 +271,39 @@ function Table({ rows }: { rows: Record<string, unknown>[] }) {
 }
 const pct = (value: unknown) =>
   typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "—";
+// Metrics stored as fractions; shown as percentages everywhere so a table row
+// never disagrees in unit with the tile above it.
+const PCT_METRICS = new Set([
+  "total_return",
+  "cagr",
+  "annualized_return",
+  "annualized_volatility",
+  "max_drawdown",
+  "average_drawdown",
+  "win_rate",
+  "loss_rate",
+  "exposure",
+  "var_95",
+  "cvar_95",
+]);
+const MONEY_METRICS = new Set([
+  "average_winner",
+  "average_loser",
+  "expectancy",
+  "turnover",
+]);
+const money = (value: number) =>
+  "$" +
+  value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+function formatMetric(metric: string, value: unknown) {
+  if (typeof value !== "number") return "—";
+  if (PCT_METRICS.has(metric)) return pct(value);
+  if (MONEY_METRICS.has(metric)) return money(value);
+  return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
 export default function Workspace() {
   const [datasets, setDatasets] = useState<Dataset[]>([]),
     [dataset, setDataset] = useState("");
@@ -289,10 +324,10 @@ export default function Workspace() {
     [order, setOrder] = useState("market");
   async function refresh() {
     const [ds, st, ex, pa] = await Promise.all([
-      api("datasets"),
-      api("strategies"),
-      api("experiments"),
-      api("paper"),
+      api<Dataset[]>("datasets"),
+      api<{ strategies: string[] }>("strategies"),
+      api<Experiment[]>("experiments"),
+      api<Paper[]>("paper"),
     ]);
     setDatasets(ds);
     setDataset((old) => old || ds[0]?.id || "");
@@ -337,11 +372,10 @@ export default function Workspace() {
   const metrics = result?.metrics;
   const drawdownRows = useMemo(
     () =>
-      result?.simulation?.equity.map((r, i) => ({
-        ...r,
-        equity:
-          ((result.metrics?.drawdown as number[] | undefined)?.[i] ?? 0) * 100,
-      })) ?? [],
+      result?.simulation?.equity.flatMap((r, i) => {
+        const value = (result.metrics?.drawdown as number[] | undefined)?.[i];
+        return typeof value === "number" ? [{ ...r, equity: value * 100 }] : [];
+      }) ?? [],
     [result],
   );
   const provenanceNote = (provider?: string) =>
@@ -500,7 +534,7 @@ export default function Workspace() {
               onClick={() =>
                 action(async () => {
                   setResult(
-                    await api("experiments", {
+                    await api<Result>("experiments", {
                       ...request,
                       kind: tab === "ML research" ? "ml" : "backtest",
                     }),
@@ -555,7 +589,7 @@ export default function Workspace() {
                 action(
                   async () =>
                     setBars(
-                      await api(
+                      await api<Bar[]>(
                         `market/${dataset}?symbol=${encodeURIComponent(symbols.split(",")[0].trim().toUpperCase())}`,
                       ),
                     ),
@@ -615,7 +649,9 @@ export default function Workspace() {
                       {e.kind} / {e.config.strategy}
                     </td>
                     <td>
-                      {e.status}
+                      <span className={`run-${e.status.toLowerCase()}`}>
+                        {e.status}
+                      </span>
                       {e.error && (
                         <small
                           style={{
@@ -634,7 +670,9 @@ export default function Workspace() {
                         disabled={Boolean(busy) || e.status !== "SUCCEEDED"}
                         onClick={() =>
                           action(async () => {
-                            const r = await api(`experiments/${e.id}`);
+                            const r = await api<{ result: Result }>(
+                              `experiments/${e.id}`,
+                            );
                             setResult({ ...r.result, id: e.id });
                             setTab(
                               e.kind === "ml" ? "ML research" : "Research",
@@ -664,7 +702,7 @@ export default function Workspace() {
             disabled={Boolean(busy) || !dataset}
             onClick={() =>
               action(async () => {
-                await api("paper", request);
+                await api<{ id: string }>("paper", request);
               }, "Creating paper account…")
             }
           >
@@ -673,19 +711,42 @@ export default function Workspace() {
           {papers.map((p) => (
             <article className="paper" key={p.id}>
               <code>{p.id}</code>
+              <p className="source">
+                {provenanceNote(
+                  datasets.find((d) => d.id === p.config.dataset_id)?.provider,
+                )}{" "}
+                · Dataset {p.config.dataset_id.slice(0, 12)} ·{" "}
+                {p.config.strategy} on {p.config.symbols.join(", ")}
+              </p>
               <p>
                 Last session: {p.state.last_session || "Not started"} · Equity:{" "}
-                {p.state.account?.equity.toLocaleString("en-US", {
-                  maximumFractionDigits: 2,
-                }) ?? "—"}
+                {p.state.account ? money(p.state.account.equity) : "—"}
               </p>
-              <p>{p.state.alerts.join(" · ")}</p>
+              {p.state.alerts.length > 0 && (
+                <p>
+                  {p.state.alerts.map((a) => (
+                    <span
+                      key={a}
+                      className={
+                        a === "TICK_FAILED" ? "alert-danger" : "alert-warn"
+                      }
+                    >
+                      {a.replaceAll("_", " ")}
+                    </span>
+                  ))}
+                </p>
+              )}
+              {p.state.last_error && (
+                <p>
+                  <small>Last tick error: {p.state.last_error}</small>
+                </p>
+              )}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = new FormData(e.currentTarget);
                   action(async () => {
-                    await api(`paper/${p.id}/advance`, {
+                    await api<unknown>(`paper/${p.id}/advance`, {
                       as_of: form.get("date"),
                     });
                   }, "Updating paper ledger…");
@@ -770,8 +831,8 @@ export default function Workspace() {
                         style={{
                           background:
                             v >= 0
-                              ? `rgba(80,170,115,${Math.min(0.8, 0.12 + Math.abs(v) * 8)})`
-                              : `rgba(210,90,90,${Math.min(0.8, 0.12 + Math.abs(v) * 8)})`,
+                              ? `rgba(80,170,115,${Math.min(0.45, 0.12 + Math.abs(v) * 8)})`
+                              : `rgba(210,90,90,${Math.min(0.45, 0.12 + Math.abs(v) * 8)})`,
                         }}
                       >
                         <small>{m}</small>
@@ -785,7 +846,10 @@ export default function Workspace() {
                   <Table
                     rows={Object.entries(metrics || {})
                       .filter(([, v]) => typeof v === "number" || v === null)
-                      .map(([metric, value]) => ({ metric, value }))}
+                      .map(([metric, value]) => ({
+                        metric,
+                        value: formatMetric(metric, value),
+                      }))}
                   />
                 </details>
                 <details className="panel">

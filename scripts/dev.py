@@ -48,7 +48,7 @@ for name, command in commands.items():
             env=env,
             stdout=output,
             stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows-only flag
         )
         pids[name] = process.pid
 (runtime / "servers.json").write_text(json.dumps(pids))

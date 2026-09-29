@@ -89,6 +89,15 @@ def test_snapshot_write_cleans_staging_and_tolerates_concurrent_publish(
     assert store.read(identity).height == bars.height
 
 
+def test_rewriting_a_corrupted_snapshot_repairs_it(bars, tmp_path):
+    store = SnapshotStore(tmp_path)
+    identity = store.write(bars)
+    next((tmp_path / "validated" / identity).rglob("bars.parquet")).write_bytes(b"torn")
+    assert store.write(bars) == identity
+    assert store.read(identity).height == bars.height
+    assert len(list((tmp_path / "validated").glob(identity + ".corrupt-*"))) == 1
+
+
 def test_timestamp_validation_and_csv_roundtrip(bars, tmp_path):
     from axiom.common.models import UNIVERSE
     from axiom.data.providers import CSVProvider

@@ -29,7 +29,11 @@ class SnapshotStore:
         identity = hashlib.sha256(canonical.encode()).hexdigest()
         target = self.root / "validated" / identity
         if (target / "manifest.json").exists():
-            return identity
+            if _parts_intact(target):
+                return identity
+            # A torn or corrupted publish must not be permanent: set it aside for
+            # inspection and republish the same content from this verified frame.
+            target.rename(target.with_name(identity + ".corrupt-" + str(uuid.uuid4())))
         stage = target.with_name(identity + ".partial-" + str(uuid.uuid4()))
         try:
             self._stage(frame, identity, stage)
@@ -93,6 +97,17 @@ class SnapshotStore:
         if hashlib.sha256(canonical.encode()).hexdigest() != identity:
             raise ValueError("snapshot content hash mismatch")
         return frame
+
+
+def _parts_intact(target: Path) -> bool:
+    try:
+        manifest = json.loads((target / "manifest.json").read_text())
+        return all(
+            hashlib.sha256((target / part["path"]).read_bytes()).hexdigest() == part["sha256"]
+            for part in manifest["parts"]
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
 
 
 def _fsync(path: Path) -> None:

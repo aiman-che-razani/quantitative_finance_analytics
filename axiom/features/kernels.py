@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -21,7 +22,7 @@ def python_mean(values, window):
     return output
 
 
-numba_mean = njit(cache=True)(python_mean)
+numba_mean: Callable[[np.ndarray, int], np.ndarray] = njit(cache=True)(python_mean)
 
 
 def numpy_mean(values, window):

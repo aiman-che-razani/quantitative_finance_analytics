@@ -1,5 +1,6 @@
-FROM python:3.12-slim
-COPY --from=ghcr.io/astral-sh/uv:0.12.15 /uv /usr/local/bin/uv
+# Base images are pinned by digest; .github/dependabot.yml proposes updates.
+FROM python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
+COPY --from=ghcr.io/astral-sh/uv:0.12.15@sha256:62f8c047d0a0e9ece6b53fc63df902585a67a47a7f318ddec4a37db586edc8e3 /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --extra yahoo
@@ -9,7 +10,9 @@ COPY alembic.ini ./
 COPY scripts ./scripts
 RUN uv sync --frozen --extra yahoo && useradd --uid 10001 --create-home axiom && mkdir -p data reports && chown -R axiom:axiom /app
 USER axiom
-ENV PATH="/app/.venv/bin:$PATH"
+# The slim image has no git, so experiment provenance reads the commit from here.
+ARG GIT_COMMIT=unavailable
+ENV PATH="/app/.venv/bin:$PATH" GIT_COMMIT=$GIT_COMMIT
 EXPOSE 8820
 # 0.0.0.0 here is required so the dashboard container can reach this one over
 # the Compose bridge network (apps/dashboard's AXIOM_API_URL=http://api:8820
