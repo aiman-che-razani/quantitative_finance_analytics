@@ -176,7 +176,7 @@ small {
 .metrics {
   display: grid;
   /* Tiles never shrink below their widest value ("-23.45%" at 24px). */
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin: 24px 0;
 }
@@ -316,7 +316,7 @@ a {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
-/* Semantic status colors reuse the existing danger/warning tokens. */
+/* Status colors reuse the chart palette's amber and red (page.tsx candles). */
 .alert-warn,
 .alert-danger {
   font-size: 11px;
@@ -331,4 +331,9 @@ a {
 .run-failed,
 .run-interrupted {
   color: #e39d9d;
+}
+.run-error {
+  display: block;
+  white-space: normal;
+  max-width: 360px;
 }

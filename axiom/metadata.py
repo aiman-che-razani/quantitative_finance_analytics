@@ -39,15 +39,18 @@ EXPERIMENT_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED", "INTERRUPTED")
 EXPERIMENT_KINDS = ("backtest", "ml")
 
 
+def _one_of(column: str, values: tuple[str, ...]) -> str:
+    # Migrations keep their own frozen literals; this keeps the model and constants in step.
+    return f"{column} IN ({','.join(repr(v) for v in values)})"
+
+
 class ExperimentRow(Base):
     __tablename__ = "experiments"
     __table_args__ = (
         Index("ix_experiments_created_at", "created_at"),
         Index("ix_experiments_status_created_at", "status", "created_at"),
-        CheckConstraint(
-            "status IN ('RUNNING','SUCCEEDED','FAILED','INTERRUPTED')", name="ck_experiments_status"
-        ),
-        CheckConstraint("kind IN ('backtest','ml')", name="ck_experiments_kind"),
+        CheckConstraint(_one_of("status", EXPERIMENT_STATUSES), name="ck_experiments_status"),
+        CheckConstraint(_one_of("kind", EXPERIMENT_KINDS), name="ck_experiments_kind"),
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     kind: Mapped[str] = mapped_column(String(32))

@@ -24,7 +24,7 @@ Python, NumPy, Polars, Numba and C++ rolling kernels agreed within numerical tol
 - Chromium: submit research, view price charts, open experiment history, create/advance paper accounts, mobile overflow checks, change saved portfolio experiments; no JavaScript page errors.
 - Docker Compose: PostgreSQL health, migrations, non-root API and dashboard; 60-instrument ingestion/research inside the container; proxy research request, rejected cross-origin POST, source fingerprint persistence, idempotent paper replay and ML imports.
 
-The only local test warnings are upstream FastAPI/Starlette HTTPX/AnyIO deprecations. No test failures are waived. GitHub Actions independently checks PostgreSQL tests, native compilation, Python static checks, the dashboard build and a Docker Compose build-and-smoke job after push.
+The only local test warnings are upstream FastAPI/Starlette HTTPX/AnyIO deprecations. No test failures are waived. GitHub Actions independently checks PostgreSQL tests, native compilation, Python static checks, the dashboard build and a Docker Compose build-and-smoke job after push. (Historical, 2026-09-17. The current workflow also runs Python 3.14, a Windows job and a Node 26 dashboard typecheck and build; see docs/TESTING.md.)
 
 ## Screenshots
 

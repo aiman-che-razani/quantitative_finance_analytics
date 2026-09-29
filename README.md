@@ -24,7 +24,7 @@ Open **http://127.0.0.1:8821**. The authenticated API is on port 8820. Credentia
 
 ## Install elsewhere
 
-Python 3.12+, Node 22 and PostgreSQL 18 are the tested versions.
+Requires Python 3.12+ (`pyproject.toml`), Node.js and PostgreSQL 18. Development uses Python 3.12 on Windows; the Docker images ship Python 3.14 and Node 26. CI tests Python 3.12 and 3.14 (with PostgreSQL), a Windows job and a Node 26 dashboard build; all of them passed on the `audit-fixes-2` branch (runs 36515900426 and 36515956881).
 
 ```sh
 uv sync --frozen --extra dev --extra yahoo
@@ -46,7 +46,7 @@ uv run python scripts/dev.py
 |---|---|
 | V0.2 | PostgreSQL/Alembic metadata, immutable versions and lineage, incremental overlap deduplication, conflict/gap rejection, 60-symbol universe, shared expanded feature pipeline |
 | V0.3 | Next-open event replay, market/limit/stop/stop-limit orders, longs/shorts, partial fills, signed average-cost ledger, risk approve/modify/reject, portfolio analytics and benchmark comparison |
-| V0.4 | FastAPI, server-side authenticated Next.js proxy, interactive research and price charts, experiment history, Docker Compose, portfolio showcase replacement on `dev` |
+| V0.4 | FastAPI, server-side authenticated Next.js proxy, interactive research and price charts, experiment history, Docker Compose, portfolio showcase replacement (live on nadeemrazani.com) |
 | V0.5 | Naive, logistic, random forest and XGBoost; expanding chronological train/validation/test folds; horizon purges; prediction evaluation separate from out-of-sample trading |
 | V0.6 | Actual 342-instrument × 2,514-session synthetic workload; Python/NumPy/Polars/Numba/C++ kernel checks; profiling-driven optimization and recorded measurements |
 | V1.0 | Optional Yahoo completed-daily-bar ingestion, scheduled paper ticks, persistent/idempotent paper accounts, stale/risk/failure alerts and an operational UI |
@@ -82,7 +82,7 @@ Bars remain in partitioned Parquet. PostgreSQL stores instrument definitions, da
 5. Use **Market data** for candlesticks, EMA/Bollinger overlays and OHLCV/RSI inspection.
 6. Use one instrument in **ML research**; this implementation deliberately does not mix cross-sectional rows into chronological splits.
 
-API requests require `Authorization: Bearer <API_TOKEN>`. Routes include `/health`, `/datasets`, `/instruments`, `/market/{dataset_id}?symbol=SPY`, `/strategies`, `/experiments`, `/experiments/{id}`, `/paper`, and `/paper/{id}/advance`. API reference is available through FastAPI's `/docs`; requests still require the token. Research POSTs are synchronous with durable status records and a bounded per-process admission gate. A lost browser connection does not imply the run failed: check history before retrying. After a process crash, stop workers and use `scripts/recover_runs.py` to mark old orphaned RUNNING records INTERRUPTED. There is no distributed task queue or automatic job resumption.
+API requests require `Authorization: Bearer <API_TOKEN>`. Routes include `/health`, `/datasets`, `/instruments`, `/market/{dataset_id}?symbol=SPY`, `/strategies`, `/experiments`, `/experiments/{id}`, `/paper`, and `/paper/{id}/advance`. The OpenAPI schema is served at `/openapi.json` behind the same token; FastAPI's interactive `/docs` and `/redoc` pages are disabled because they bypass app-level auth. Research POSTs are synchronous with durable status records and a bounded per-process admission gate. A lost browser connection does not imply the run failed: check history before retrying. After a process crash, stop workers and use `scripts/recover_runs.py` to mark old orphaned RUNNING records INTERRUPTED. There is no distributed task queue or automatic job resumption.
 
 ## Data and paper execution
 
@@ -145,11 +145,11 @@ uv run python scripts/check_platform.py
 uv run python scripts/check_browser.py
 ```
 
-The browser harness needs Chromium installed through Playwright and both the Axiom app and portfolio at port 8790. Tests cover causal features, validation, snapshots, account reconciliation and reversal, gap/limit behavior, short leverage, partial fills, pending-order cancellation, horizon purges, PostgreSQL ingestion, authentication and paper idempotency. GitHub Actions runs the PostgreSQL suite, native kernel checks, static checks, the Next.js build, and a Docker Compose build-and-smoke job.
+The browser harness needs Chromium installed through Playwright and both the Axiom app and portfolio at port 8790. Tests cover causal features, validation, snapshots, account reconciliation and reversal, gap/limit behavior, short leverage, partial fills, pending-order cancellation, horizon purges, PostgreSQL ingestion, authentication and paper idempotency. The GitHub Actions workflow (`.github/workflows/ci.yml`) is configured to run the PostgreSQL suite on Python 3.12 and 3.14, native kernel checks, static checks, a Windows test job without PostgreSQL (database tests skip), the Next.js typecheck and build on Node 26, and a Docker Compose build-and-smoke job.
 
 ## Portfolio
 
-The `personalportfolio` repository's `dev` route `/work/quantitative-finance-analytics/` replaces the old Golden Cross Tearsheet with Axiom. Its public explorer uses [saved derived research results](docs/showcase.json), explicitly identifies synthetic versus observed-price studies, and works without a private API token. It does not pretend to run a backend from the public page. The full executable workspace runs separately on port 8821. No production portfolio branch is merged or deployed by this change.
+The portfolio route `/work/quantitative-finance-analytics/` on nadeemrazani.com (`personalportfolio` repository) replaces the old Golden Cross Tearsheet with Axiom. Its public explorer uses a copy of the [saved derived research results](docs/showcase.json), labels each study synthetic or observed-price, and works without a private API token. It does not pretend to run a backend from the public page. The full executable workspace runs separately on port 8821. The live site can lag this repository: the latest showcase copy and wording sit on the portfolio's `dev` branch until it is promoted to production.
 
 ## Limitations and next improvements
 

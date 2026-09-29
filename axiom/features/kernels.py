@@ -36,14 +36,21 @@ def polars_mean(values, window):
     return pl.Series(values).rolling_mean(window).to_numpy()
 
 
-def native_mean(values, window):
-    if window < 1:
-        raise ValueError("Positive window required")
-    library = (
+def native_library() -> Path:
+    return (
         Path(__file__).resolve().parents[2]
         / "native"
         / ("rolling.dll" if os.name == "nt" else "rolling.so")
     )
+
+
+def native_mean(values, window):
+    if window < 1:
+        raise ValueError("Positive window required")
+    library = native_library()
+    if not library.exists():
+        # e.g. the Docker image, which does not build native/; a clear 422, not a 500.
+        raise ValueError("native rolling kernel is not built on this machine")
     lib = ctypes.CDLL(str(library))
     function = lib.rolling_mean
     pointer = np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags="C_CONTIGUOUS")

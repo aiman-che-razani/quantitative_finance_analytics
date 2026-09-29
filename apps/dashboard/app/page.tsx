@@ -24,6 +24,7 @@ type Result = {
   metrics?: Metrics;
   provenance?: { provider: string; dataset_id: string };
   folds?: { test: string[]; models: Record<string, Record<string, number>> }[];
+  pooled_test_auc?: Record<string, number | null>;
   out_of_sample_trading?: Record<
     string,
     { metrics: Metrics; equity: Equity[] }
@@ -50,6 +51,7 @@ type Paper = {
     last_session: string | null;
     alerts: string[];
     last_error?: string;
+    provider?: string;
     account?: { equity: number };
   };
 };
@@ -233,7 +235,8 @@ function MarketPlot({ bars }: { bars: Bar[] }) {
   );
 }
 function Table({ rows }: { rows: Record<string, unknown>[] }) {
-  const columns = Object.keys(rows[0] || {});
+  if (!rows.length) return <p className="source">No rows.</p>;
+  const columns = Object.keys(rows[0]);
   return (
     <div className="scroll">
       <table>
@@ -290,7 +293,6 @@ const MONEY_METRICS = new Set([
   "average_winner",
   "average_loser",
   "expectancy",
-  "turnover",
 ]);
 const money = (value: number) =>
   "$" +
@@ -302,6 +304,7 @@ function formatMetric(metric: string, value: unknown) {
   if (typeof value !== "number") return "—";
   if (PCT_METRICS.has(metric)) return pct(value);
   if (MONEY_METRICS.has(metric)) return money(value);
+  if (metric === "turnover") return value.toFixed(2) + "×";
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 export default function Workspace() {
@@ -313,7 +316,8 @@ export default function Workspace() {
   const [experiments, setExperiments] = useState<Experiment[]>([]),
     [papers, setPapers] = useState<Paper[]>([]),
     [result, setResult] = useState<Result | null>(null);
-  const [bars, setBars] = useState<Bar[]>([]);
+  const [bars, setBars] = useState<Bar[]>([]),
+    [barsSource, setBarsSource] = useState<Dataset | undefined>();
   const [tab, setTab] = useState("Research"),
     [busy, setBusy] = useState(""), // status message while an action runs; "" = idle
     [error, setError] = useState(""),
@@ -347,7 +351,9 @@ export default function Workspace() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       // Refresh even after a failure: the error tells users to check history.
-      await refresh().catch(() => {});
+      await refresh().catch((e) =>
+        setError((old) => old || (e instanceof Error ? e.message : String(e))),
+      );
       setBusy("");
     }
   }
@@ -381,7 +387,7 @@ export default function Workspace() {
   const provenanceNote = (provider?: string) =>
     provider?.includes("synthetic")
       ? "SYNTHETIC DATA — engineering demonstration, not observed market performance."
-      : "Provider: " + (provider || "none");
+      : "Provider: " + (provider || "unknown");
   const selected = datasets.find((d) => d.id === dataset);
   function exportResult() {
     const url = URL.createObjectURL(
@@ -420,7 +426,7 @@ export default function Workspace() {
           <span>completed experiments</span>
         </div>
       </div>
-      <nav>
+      <nav role="tablist">
         {[
           "Research",
           "Market data",
@@ -430,7 +436,8 @@ export default function Workspace() {
         ].map((t) => (
           <button
             className={tab === t ? "active" : ""}
-            aria-current={tab === t ? "page" : undefined}
+            role="tab"
+            aria-selected={tab === t}
             onClick={() => setTab(t)}
             key={t}
           >
@@ -586,23 +593,24 @@ export default function Workspace() {
             <button
               disabled={Boolean(busy) || !dataset}
               onClick={() =>
-                action(
-                  async () =>
-                    setBars(
-                      await api<Bar[]>(
-                        `market/${dataset}?symbol=${encodeURIComponent(symbols.split(",")[0].trim().toUpperCase())}`,
-                      ),
+                action(async () => {
+                  setBars(
+                    await api<Bar[]>(
+                      `market/${dataset}?symbol=${encodeURIComponent(symbols.split(",")[0].trim().toUpperCase())}`,
                     ),
-                  "Loading market data…",
-                )
+                  );
+                  setBarsSource(selected);
+                }, "Loading market data…")
               }
             >
               Load market data
             </button>
           </div>
           <p className="source">
-            {provenanceNote(selected?.provider)} · Dataset{" "}
-            {dataset.slice(0, 12) || "—"}
+            {/* Describe the loaded bars, not whatever Research now selects. */}
+            {provenanceNote((bars.length ? barsSource : selected)?.provider)} ·
+            Dataset{" "}
+            {(bars.length ? barsSource?.id : dataset)?.slice(0, 12) || "—"}
           </p>
           {bars.length ? (
             <>
@@ -642,9 +650,20 @@ export default function Workspace() {
                 </tr>
               </thead>
               <tbody>
+                {!experiments.length && (
+                  <tr>
+                    <td colSpan={5}>No experiments yet. Run one from Research.</td>
+                  </tr>
+                )}
                 {experiments.map((e) => (
                   <tr key={e.id}>
-                    <td>{e.created_at.slice(0, 16).replace("T", " ")} UTC</td>
+                    <td>
+                      {new Date(e.created_at)
+                        .toISOString()
+                        .slice(0, 16)
+                        .replace("T", " ")}{" "}
+                      UTC
+                    </td>
                     <td>
                       {e.kind} / {e.config.strategy}
                     </td>
@@ -653,13 +672,7 @@ export default function Workspace() {
                         {e.status}
                       </span>
                       {e.error && (
-                        <small
-                          style={{
-                            display: "block",
-                            whiteSpace: "normal",
-                            maxWidth: 360,
-                          }}
-                        >
+                        <small className="run-error">
                           {e.error}
                         </small>
                       )}
@@ -708,12 +721,14 @@ export default function Workspace() {
           >
             Create paper account
           </button>
+          {!papers.length && <p>No paper accounts yet.</p>}
           {papers.map((p) => (
             <article className="paper" key={p.id}>
               <code>{p.id}</code>
               <p className="source">
                 {provenanceNote(
-                  datasets.find((d) => d.id === p.config.dataset_id)?.provider,
+                  p.state.provider ??
+                    datasets.find((d) => d.id === p.config.dataset_id)?.provider,
                 )}{" "}
                 · Dataset {p.config.dataset_id.slice(0, 12)} ·{" "}
                 {p.config.strategy} on {p.config.symbols.join(", ")}
@@ -777,9 +792,7 @@ export default function Workspace() {
               <button onClick={exportResult}>Export JSON ↓</button>
             </div>
             <p className="source">
-              {result.provenance?.provider
-                ? provenanceNote(result.provenance.provider)
-                : "—"}{" "}
+              {provenanceNote(result.provenance?.provider)}{" "}
               · Dataset {result.provenance?.dataset_id?.slice(0, 12) ?? "—"} ·{" "}
               {result.id}
             </p>
@@ -796,7 +809,12 @@ export default function Workspace() {
                   ],
                   ["Max drawdown", pct(metrics.max_drawdown)],
                   ["Win rate", pct(metrics.win_rate)],
-                  ["Trades", String(metrics.number_of_trades)],
+                  [
+                    "Trades",
+                    typeof metrics.number_of_trades === "number"
+                      ? metrics.number_of_trades.toLocaleString("en-US")
+                      : "—",
+                  ],
                 ].map(([label, value]) => (
                   <div key={label}>
                     <span>{label}</span>
@@ -868,7 +886,7 @@ export default function Workspace() {
             )}
             {result.out_of_sample_trading &&
               Object.entries(result.out_of_sample_trading).map(([name, r]) => (
-                <section key={name}>
+                <section className="panel" key={name}>
                   <h2>{name} · Out-of-sample trading</h2>
                   <p>
                     Total return {pct(r.metrics.total_return)} · Drawdown{" "}
@@ -877,6 +895,23 @@ export default function Workspace() {
                   <Plot title={`${name} equity`} rows={r.equity} />
                 </section>
               ))}
+            {result.pooled_test_auc && (
+              <section className="panel">
+                <h2>Pooled test AUC</h2>
+                <p className="source">
+                  Per-fold AUC on short test windows reads above 0.5 even
+                  with no signal, so compare pooled AUC with a random-walk
+                  null (scripts/demo_ml.py), not with 0.5. The dashboard does
+                  not compute that null, so these values are not evidence of
+                  skill.
+                </p>
+                <Table
+                  rows={Object.entries(result.pooled_test_auc).map(
+                    ([model, auc]) => ({ model, pooled_test_auc: auc ?? "—" }),
+                  )}
+                />
+              </section>
+            )}
             {result.folds && (
               <section className="panel">
                 <h2>Prediction evaluation by test fold</h2>

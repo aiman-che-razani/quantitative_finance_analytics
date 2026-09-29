@@ -1,5 +1,6 @@
 """Swappable inputs. No implicit synthetic fallback after provider failure."""
 
+import hashlib
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -43,7 +44,6 @@ class SyntheticProvider:
     seed: int = 42
 
     def fetch(self, instrument: Instrument, start: date, end: date) -> pl.DataFrame:
-        import hashlib
 
         salt = int.from_bytes(hashlib.sha256(instrument.symbol.encode()).digest()[:4], "big")
         rng = np.random.default_rng(self.seed + salt)
