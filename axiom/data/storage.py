@@ -1,4 +1,8 @@
-"""Immutable single-writer Parquet snapshots with completion manifests."""
+"""Immutable content-addressed Parquet snapshots with completion manifests.
+
+Concurrent writers of the same content are tolerated: the first publish wins and the
+others treat the published directory as their own.
+"""
 
 import hashlib
 import json
@@ -33,7 +37,12 @@ class SnapshotStore:
                 return identity
             # A torn or corrupted publish must not be permanent: set it aside for
             # inspection and republish the same content from this verified frame.
-            target.rename(target.with_name(identity + ".corrupt-" + str(uuid.uuid4())))
+            try:
+                target.rename(target.with_name(identity + ".corrupt-" + str(uuid.uuid4())))
+            except OSError:
+                # Another writer is healing the same snapshot (or a reader holds a file
+                # open on Windows); fall through and let the publish race settle it.
+                pass
         stage = target.with_name(identity + ".partial-" + str(uuid.uuid4()))
         try:
             self._stage(frame, identity, stage)
@@ -86,9 +95,7 @@ class SnapshotStore:
         manifest = json.loads((root / "manifest.json").read_text())
         frames = []
         for part in manifest["parts"]:
-            path = (root / part["path"]).resolve()
-            if root.resolve() not in path.parents:
-                raise ValueError("snapshot path escapes root")
+            path = _part_path(root, part["path"])
             if hashlib.sha256(path.read_bytes()).hexdigest() != part["sha256"]:
                 raise ValueError("snapshot file hash mismatch")
             frames.append(pl.read_parquet(path, hive_partitioning=False))
@@ -99,11 +106,19 @@ class SnapshotStore:
         return frame
 
 
+def _part_path(root: Path, relative: str) -> Path:
+    path = (root / relative).resolve()
+    if root.resolve() not in path.parents:
+        raise ValueError("snapshot path escapes root")
+    return path
+
+
 def _parts_intact(target: Path) -> bool:
     try:
         manifest = json.loads((target / "manifest.json").read_text())
         return all(
-            hashlib.sha256((target / part["path"]).read_bytes()).hexdigest() == part["sha256"]
+            hashlib.sha256(_part_path(target, part["path"]).read_bytes()).hexdigest()
+            == part["sha256"]
             for part in manifest["parts"]
         )
     except (OSError, ValueError, KeyError, TypeError):

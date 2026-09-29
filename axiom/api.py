@@ -223,7 +223,7 @@ def create_app(settings=None):
             raise HTTPException(429, "Research capacity busy")
         try:
             return paper.advance(sessions, settings, identity, request.as_of, request.dataset_id)
-        except LookupError as exc:
+        except paper.UnknownPaperAccount as exc:
             raise HTTPException(404, str(exc)) from exc
         except paper.PaperConflict as exc:
             raise HTTPException(409, str(exc)) from exc

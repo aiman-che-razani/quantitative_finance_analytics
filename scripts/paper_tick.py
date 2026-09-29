@@ -74,7 +74,9 @@ while True:
     except Exception as exc:
         print(json.dumps({"alert": "TICK_FAILED", "error": str(exc)}), flush=True)
         try:
-            record_tick_failure(sessions, args.account, str(exc))
+            record_tick_failure(
+                sessions, args.account, f"{type(exc).__name__} (details in the tick log)"
+            )
         except Exception as mark_exc:
             # e.g. the database is the thing that failed; keep the loop alive.
             print(json.dumps({"alert": "TICK_MARK_FAILED", "error": str(mark_exc)}), flush=True)

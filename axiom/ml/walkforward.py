@@ -15,6 +15,8 @@ from xgboost import XGBClassifier
 
 from axiom.analytics.extended import analyze
 from axiom.backtest.events import ExecutionConfig, run_events
+from axiom.common.models import FeatureConfig
+from axiom.features.pipeline import FeaturePipeline
 
 FEATURES = [
     "rsi",
@@ -183,13 +185,13 @@ def random_walk_surrogate(bars: pl.DataFrame, seed: int) -> pl.DataFrame:
     return bars.with_columns((pl.col(c) * scale).alias(c) for c in ("open", "high", "low", "close"))
 
 
-def null_auc(bars: pl.DataFrame, features, surrogates=20, seed=0, **split_options) -> dict:
+def null_auc(
+    bars: pl.DataFrame, features: FeatureConfig, surrogates=20, seed=0, **split_options
+) -> dict:
     """Pooled test AUC each model reaches on random-walk surrogates of ``bars``.
 
     A real study's pooled AUC is only evidence of skill if it clears ``p95`` here, not 0.5.
     """
-    from axiom.features.pipeline import FeaturePipeline
-
     runs: dict[str, list[float]] = {}
     for k in range(surrogates):
         frame = FeaturePipeline(features).transform(random_walk_surrogate(bars, seed + k))

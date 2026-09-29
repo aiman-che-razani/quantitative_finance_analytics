@@ -44,6 +44,9 @@ def native_mean(values, window):
         / "native"
         / ("rolling.dll" if os.name == "nt" else "rolling.so")
     )
+    if not library.exists():
+        # e.g. the Docker image, which does not build native/; a clear 422, not a 500.
+        raise ValueError("native rolling kernel is not built on this machine")
     lib = ctypes.CDLL(str(library))
     function = lib.rolling_mean
     pointer = np.ctypeslib.ndpointer(dtype=np.float64, ndim=1, flags="C_CONTIGUOUS")

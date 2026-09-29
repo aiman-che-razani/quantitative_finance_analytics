@@ -1,6 +1,8 @@
 import os
+import threading
 from datetime import date, datetime, timedelta, timezone
 
+import numpy as np
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
@@ -17,7 +19,7 @@ from axiom.data.stable import StableSyntheticProvider
 from axiom.data.validation import validate
 from axiom.features.pipeline import FeaturePipeline
 from axiom.metadata import Base, ExperimentRow, PaperRow, database
-from axiom.ml.walkforward import splits, walk_forward
+from axiom.ml.walkforward import null_auc, random_walk_surrogate, splits, walk_forward
 from axiom.platform import run_experiment
 from axiom.risk.engine import RiskConfig
 from axiom.settings import Settings
@@ -97,10 +99,6 @@ def test_walk_forward_reports_all_four_models():
 
 
 def test_random_walk_surrogate_keeps_shape_and_volatility():
-    import numpy as np
-
-    from axiom.ml.walkforward import random_walk_surrogate
-
     start, end = date(2015, 1, 1), date(2021, 1, 1)
     frame, _ = validate(SyntheticProvider().fetch(UNIVERSE[0], start, end), "SPY", start, end)
     surrogate = random_walk_surrogate(frame, seed=3)
@@ -509,8 +507,6 @@ def test_incremental_conflicting_overlap_is_rejected_and_head_unchanged(pg):
 
 
 def test_api_experiment_and_paper_round_trip(pg, monkeypatch):
-    import threading
-
     sessions, settings = pg
     dataset = ingest_incremental(
         sessions,
@@ -588,3 +584,136 @@ def test_fill_size_is_capped_by_prior_bar_volume_not_execution_day_volume():
     first = run_events(frame, "buy_hold", config)["fills"][0]
     assert first["timestamp"].startswith("2020-01-02")
     assert first["units"] == pytest.approx(10.0)
+
+
+def test_successful_repeat_tick_clears_tick_failure(pg):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, dataset["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    paper.advance(sessions, settings, identity, date(2020, 12, 31))
+    with sessions() as db:
+        before = db.get(PaperRow, identity).updated_at
+    paper.record_tick_failure(sessions, identity, "TimeoutError (details in the tick log)")
+    with sessions() as db:
+        assert db.get(PaperRow, identity).updated_at > before
+    state = paper.advance(sessions, settings, identity, date(2021, 1, 2))
+    assert "TICK_FAILED" not in state["alerts"] and "last_error" not in state
+
+
+def test_paper_stale_alert_persists_on_repeat_ticks_without_new_bars(pg):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, dataset["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    paper.advance(sessions, settings, identity, date(2020, 12, 31))
+    first = paper.advance(sessions, settings, identity, date(2021, 1, 2))
+    assert "STALE_INPUT" not in first["alerts"]
+    for as_of in (date(2021, 6, 1), date(2021, 6, 2)):
+        alerts = paper.advance(sessions, settings, identity, as_of)["alerts"]
+        assert alerts.count("STALE_INPUT") == 1
+
+
+def test_null_auc_summarises_every_model_deterministically():
+    start, end = date(2015, 1, 1), date(2021, 1, 1)
+    frame, _ = validate(SyntheticProvider().fetch(UNIVERSE[0], start, end), "SPY", start, end)
+    result = null_auc(frame, FeatureConfig(), surrogates=2)
+    assert result["surrogates"] == 2
+    assert set(result["models"]) == {"naive", "logistic", "random_forest", "xgboost"}
+    for stats in result["models"].values():
+        assert 0 <= stats["mean"] <= stats["p95"] <= 1
+    assert null_auc(frame, FeatureConfig(), surrogates=2) == result
+
+
+def test_api_list_and_market_endpoints_return_recorded_rows(pg, monkeypatch):
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    monkeypatch.setattr("axiom.api.database", lambda url: (sessions.kw["bind"].engine, sessions))
+    headers = {"Authorization": "Bearer " + settings.api_token}
+    body = {"dataset_id": dataset["dataset_id"], "symbols": ["SPY"], "strategy": "buy_hold"}
+    with TestClient(create_app(settings)) as client:
+        experiment = client.post("/experiments", headers=headers, json=body).json()["id"]
+        account = client.post("/paper", headers=headers, json=body).json()["id"]
+        row = next(
+            d
+            for d in client.get("/datasets", headers=headers).json()
+            if d["id"] == dataset["dataset_id"]
+        )
+        assert row["symbols"] == ["SPY"] and row["rows"] > 200
+        listed = client.get("/experiments", headers=headers).json()
+        assert any(e["id"] == experiment and e["status"] == "SUCCEEDED" for e in listed)
+        assert all("result" not in e for e in listed)
+        assert any(a["id"] == account for a in client.get("/paper", headers=headers).json())
+        bars = client.get(f"/market/{dataset['dataset_id']}?symbol=SPY", headers=headers).json()
+        assert 0 < len(bars) <= 3000
+        assert {"timestamp", "open", "high", "low", "close", "volume"} <= set(bars[0])
+        assert "ml" not in client.get("/strategies", headers=headers).json()["strategies"]
+        assert client.get("/instruments", headers=headers).status_code == 200
+        unknown = client.post(
+            "/paper/00000000-0000-0000-0000-000000000000/advance",
+            headers=headers,
+            json={"as_of": "2020-12-31"},
+        )
+        assert unknown.status_code == 404
+        paper_ml = client.post("/paper", headers=headers, json={**body, "strategy": "ml"})
+        assert paper_ml.status_code == 422
+
+
+def test_incremental_ingest_rejects_a_gap_and_keeps_the_head(pg):
+    sessions, settings = pg
+    provider = StableSyntheticProvider()
+    first = ingest_incremental(
+        sessions,
+        settings.data_root,
+        provider,
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2020, 1, 1),
+        "gap",
+    )
+    with pytest.raises(ValueError, match="would create a gap"):
+        ingest_incremental(
+            sessions,
+            settings.data_root,
+            provider,
+            UNIVERSE[:1],
+            date(2020, 6, 1),
+            date(2021, 1, 1),
+            "gap",
+        )
+    again = ingest_incremental(
+        sessions,
+        settings.data_root,
+        provider,
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2020, 1, 1),
+        "gap",
+    )
+    assert again["dataset_id"] == first["dataset_id"]
