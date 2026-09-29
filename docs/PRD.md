@@ -23,7 +23,7 @@ New non-goals should be appended here with a reason, never silently removed.
 
 ## 3. Capability status table
 
-Statuses: **CI** = implemented and covered by the automated suite (`.github/workflows/ci.yml`, verified: `postgres:18-alpine` service container + `ruff check` + `ruff format --check` + `mypy axiom` + `scripts/build_native.py` + `pytest -q` in the `python` job; a separate `dashboard` job runs `npm run build`). **Synthetic-only** = implemented and exercised, but the only measured evidence is synthetic data. **Manual/undertested** = implemented but not exercised by `pytest -q`; evidence is a hand-run checklist in `docs/validation-v1.md` or absent from the repo entirely.
+Statuses: **CI** = implemented and covered by the automated suite (`.github/workflows/ci.yml`, verified: `postgres:18-alpine` service container + `ruff check` + `ruff format --check` + `mypy axiom scripts` + `scripts/build_native.py` + `pytest -q` in the `python` job; a separate `dashboard` job runs `npm run typecheck` and `npm run build`; a `docker` job builds and smoke-tests Compose). **Synthetic-only** = implemented and exercised, but the only measured evidence is synthetic data. **Manual/undertested** = implemented but not exercised by `pytest -q`; evidence is a hand-run checklist in `docs/validation-v1.md` or absent from the repo entirely.
 
 | Phase | Capability | Status | Evidence |
 |---|---|---|---|

@@ -14,7 +14,7 @@ and applied via Alembic (`alembic/versions/`). Snapshot layout is owned by
 
 ## PostgreSQL schema
 
-Source of truth: `axiom/metadata.py`. Migrated by `alembic/versions/0001_metadata.py`
+Source of truth: `axiom/metadata.py`. Migrated by `alembic/versions/0001_metadata.py` and `0002_indexes_and_checks.py` (2026-09-29: indexes on `datasets.created_at`/`parent_id`, `experiments.created_at`/`(status, created_at)`/`dataset_id`, `paper_accounts.updated_at`; CHECK constraints `ck_experiments_status` (RUNNING/SUCCEEDED/FAILED/INTERRUPTED) and `ck_experiments_kind` (backtest/ml); `alembic check` clean, downgrade verified)
 — **this is still the only migration** (`alembic/versions/*.py` glob returns
 exactly one file), and CI applies it with `alembic upgrade head` against a
 fresh PostgreSQL 18 service container on every push
@@ -220,6 +220,16 @@ hold as stated in the brief.**
    fail CI.
 
 ## Known issues (re-verified 2026-09-28)
+
+- **Fixed 2026-09-28/29.** `run_experiment` marks FAILED on `BaseException`
+  (Ctrl-C/SystemExit) and a failure while marking no longer masks the original
+  error (a dead database still leaves `RUNNING`; use `recover_runs.py`).
+  `record_tick_failure` locks the row. Snapshot writes clean up their staging
+  directory, treat a lost rename race as success, fsync before and after
+  publishing, and set aside + republish a snapshot whose parts fail their hashes
+  (`*.corrupt-*`). `scripts/prune_snapshots.py` lists (`--delete` removes)
+  snapshot directories no `DatasetRow` refers to, including the one a rolled-back
+  incremental ingest leaves behind. The parent snapshot is read once per ingest.
 
 - **Stuck `RUNNING` rows after a crash are not automatic.** Confirmed:
   `scripts/recover_runs.py` (docstring: "Explicit maintenance: mark old

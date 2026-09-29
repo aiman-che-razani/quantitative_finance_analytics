@@ -136,7 +136,7 @@ PostgreSQL data, bars and reports use named volumes. Migrations complete before 
 ```sh
 uv run ruff check axiom tests scripts alembic
 uv run ruff format --check axiom tests scripts alembic
-uv run mypy axiom
+uv run mypy axiom scripts
 uv run python scripts/build_native.py
 # Set AXIOM_TEST_DATABASE_URL to an isolated PostgreSQL test database:
 uv run pytest -q

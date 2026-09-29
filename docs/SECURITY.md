@@ -119,7 +119,8 @@ Each item below was re-checked against the current tree; all 11 still hold. No r
     `apps/dashboard/package-lock.json`) present. On 2026-09-28 `npm audit --package-lock-only`
     reported 0 vulnerabilities and `pip-audit` over the exported `uv.lock` (all extras) reported
     none. This remains a periodic manual task. Docker base images (`python:3.12-slim`,
-    `node:22-alpine`, `postgres:18-alpine`) are pinned by tag, not digest — an open decision.
+    `node:22-alpine`, `postgres:18-alpine`, `ghcr.io/astral-sh/uv:0.12.15`) are pinned by digest
+    (2026-09-29); `.github/dependabot.yml` proposes weekly updates as reviewable PRs.
 
 ## Known gaps (register)
 

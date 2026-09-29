@@ -32,9 +32,9 @@ simulated execution only.
 | `docs/benchmarks/baseline.json` | SYNTHETIC | Same script, run on the **pre-optimization** engine. That engine was never committed: the first commit containing `events.py` is `810b8e7`, which is already optimized. | n/a | **Cannot be reproduced from any commit** |
 | `docs/benchmarks/kernels.png` | SYNTHETIC | `scripts/benchmark.py:112-118`, from the `results.json` run. The bars visually match `results.json` `kernels.*.median_seconds`. | No | Current |
 | `docs/benchmarks/pipeline.prof` | SYNTHETIC | Written by `scripts/benchmark.py:83`, but **git-ignored** (`.gitignore:33` `/docs/benchmarks/*.prof`) and **not in the repo**. Each run overwrites the same filename, so no baseline profile could have been kept beside it. | n/a | **Missing**: backs no public claim |
-| `docs/ml-validation.json` | SYNTHETIC | `provenance.code_commit` = `810b8e7`, `working_tree_dirty` = false, `created_at` 2026-09-16T17:06:17Z | No (`axiom/ml/`, `platform.py` unchanged) | Current. A one-off recorded run: `test_walk_forward_reports_all_four_models` only checks that the models fit and score, not these numbers |
+| `docs/ml-validation.json` | SYNTHETIC | `scripts/demo_ml.py`; `provenance.code_commit` = `856baa9`, `working_tree_dirty` = false, 2026-09-29, Linux (dataset `c4b279e6…`: the same 165,960 synthetic-v2 rows as the Windows-built `8ce51d9e…`; content IDs differ across platforms) | No | Current. Regenerated after the prior-bar volume fix; adds `pooled_test_auc`, `null_auc_reference` (20 random-walk surrogates) and a `data_note`. A one-off recorded run: tests check that models fit and score, not these numbers |
 | `docs/verification-evidence.json` | OBSERVED | V0.1 CLI (`axiom/research.py`, `backtest/engine.py`), "Generated from the pre-commit working tree" (`note`), i.e. before `e7e6c96` (2026-09-15) | Additive only. `features/pipeline.py` gained non-default backends and extra columns in `810b8e7`; the default polars path used here is unchanged. | Current for V0.1. **Not** evidence for the V0.2+ event engine |
-| `docs/showcase.json` | 3 OBSERVED + 3 SYNTHETIC | `scripts/export_showcase.py`; all 6 records `code_commit` `810b8e7`, **`working_tree_dirty: true`**, `created_at` 2026-09-16T17:06:19–23Z | Backtest path no; `code_tree_sha256` `2c1d1b6e…` no longer matches HEAD's Python source (`api.py`, `orders.py`, `storage.py`, `paper.py` changed in `572094e`/`2dc01ae`, none of them in the backtest arithmetic) | Numbers current; source hash stale |
+| `docs/showcase.json` | 3 OBSERVED + 3 SYNTHETIC | `scripts/export_showcase.py`. Records 3–5 (SYNTHETIC) regenerated at `ee8d173`, clean tree, 2026-09-29. Records 0–2 (OBSERVED) kept from `810b8e7` (`working_tree_dirty: true`) because Yahoo was unreachable from the regenerating environment. Every record now has `data_kind` and `disclaimer`. | Yes for records 0–2: the engine now caps fills on prior-bar volume. For a ~$100k account on SPY that cap never binds, so their numbers are very likely unchanged, but they have not been replayed | SYNTHETIC current; **OBSERVED needs a local re-export** |
 | `docs/validation-v1.md` | mixed | Hand-written 2026-09-17 | See the per-line table below | Partly stale (test count, CI jobs) |
 | `docs/verification.md` | mixed | Hand-written 2026-09-15 (V0.1) | — | Historical record; its figures reconcile |
 
@@ -82,11 +82,13 @@ Caveats that belong with the before/after figures:
 | four models | validation-v1.md:10 | `folds[*].models` keys = naive, logistic, random_forest, xgboost | yes |
 
 **Do not quote the trading block without the SYNTHETIC label.** On this
-deterministic synthetic series the logistic model shows `trading.logistic.sharpe`
-9.30, `total_return` 18.12 (+1,812%), and `win_rate` 1.0. That is expected
-leakage-free fitting of an intentionally predictable synthetic pattern, **not
-predictive skill** (README.md:156; methodology-v1.md:31). No public doc
-currently quotes these numbers.
+noise-free synthetic series the logistic model shows `trading.logistic.sharpe`
+9.32, `total_return` 18.12 (+1,812%), and pooled test AUC 0.993, against a
+random-walk null 95th percentile of 0.546 (`null_auc_reference`). A leakage
+audit (2026-09-28) confirmed train/validation/test boundaries are tight and that
+random walks give Sharpe ≈ −0.1, so this is leakage-free fitting of an
+intentionally predictable pattern, **not predictive skill** (README.md:156;
+methodology-v1.md). No public doc currently quotes these numbers.
 
 ### Observed-price evidence (OBSERVED)
 
@@ -120,37 +122,24 @@ file records them:
 | 36 Python tests | validation-v1.md:20 | `pytest --collect-only` at `810b8e7` = 36. **HEAD `2dc01ae` = 46** |
 | Chromium / Docker checklists | validation-v1.md:24-25 | Process claims; no log artifact committed |
 
-## Open findings (2026-09-28)
+## Open findings
 
-Ranked by how misleading each one is. The exact replacement text is in the
-evidence agent's audit report. These files are owned elsewhere and have not been
-edited here.
+Resolved on 2026-09-28/29: showcase records now carry `data_kind` and a
+disclaimer; README/validation-v1/PRD overclaims (profiler evidence, the Yahoo
+bias caveat, V0.1 vs V1.0 filing, the paper-tick fill count, test counts, the
+Docker CI job) were corrected; stale PRD citations were updated.
 
-1. `docs/showcase.json`: the three SYNTHETIC records show strategies beating
-   buy-and-hold (`ema_trend` +92.96% vs `buy_hold` +45.80%; `rsi_reversion`
-   Sharpe 1.90 vs 0.58). The only in-file label is the code string
-   `provider: "synthetic-v2"`. There is no human-readable synthetic or bias
-   disclaimer, and no top-level metadata. README.md:152's "explicitly
-   identifies" holds only if the portfolio page adds the labels, and that page
-   was not checkable in this environment.
-2. README.md:110 "profiler evidence identifies the removed work": the backing
-   `pipeline.prof` is git-ignored and absent, no baseline profile exists, and
-   the untouched Python kernel was 1.68× faster in the "after" run.
-3. README.md:156 "The fixed-universe Yahoo study": no recorded 60-ETF Yahoo
-   study exists. The recorded Yahoo studies are the 10-ETF V0.1 run and the
-   SPY-only showcase runs, and neither artifact carries the bias caveat.
-4. PRD.md:42 files `verification-evidence.json` under V1.0. It is V0.1-engine evidence.
-5. validation-v1.md:9 (paper tick, 9 fills) has no artifact.
-6. Stale: validation-v1.md:20 (36 tests, now 46); README.md:148 and
-   validation-v1.md:27 omit the Docker CI job (`.github/workflows/ci.yml:48-84`,
-   added `572094e`).
-7. Stale citations: PRD.md:37 (`test_platform.py:132` → `:278`), PRD.md:41
-   (`:152` → `:309`), PRD.md:34 (`test_execution.py` "6 tests" → 8 functions /
-   12 cases); architecture/system.md:228 attributes 56.66 s to "README prose",
-   but it is `baseline.json` `event_replay_seconds`.
-8. `showcase.json`: all records `working_tree_dirty: true`, and
-   `code_tree_sha256` no longer matches HEAD source. No backtest-path code
-   changed, so the numbers are still valid.
+Still open:
+
+1. `showcase.json` records 0–2 (OBSERVED, Yahoo SPY) predate the prior-bar volume
+   fix and carry `working_tree_dirty: true`. Re-run `scripts/export_showcase.py`
+   with the Yahoo dataset available to refresh them.
+2. README.md:152 says the portfolio explorer identifies synthetic vs observed
+   studies. The data now supports that (`data_kind`), but the portfolio page itself
+   (separate repository) has not been checked to display it.
+3. `baseline.json` cannot be reproduced from any commit, and `results.json` has no
+   commit field. The 11,100 fills / final equity were re-checked on 2026-09-29 and are
+   unchanged by the volume fix; the timings were not re-measured.
 
 ## How to re-audit
 

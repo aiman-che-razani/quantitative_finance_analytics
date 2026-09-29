@@ -22,7 +22,7 @@ export API_TOKEN=<any string of 24+ characters>
 uv run alembic upgrade head
 uv run ruff check axiom tests scripts alembic
 uv run ruff format --check axiom tests scripts alembic
-uv run mypy axiom
+uv run mypy axiom scripts
 uv run python scripts/build_native.py           # otherwise the native-kernel test skips
 uv run pytest -q -rs                            # -rs prints the reason for every skip
 ```
@@ -86,6 +86,7 @@ and isn't gitignored.
 | `ruff check` / `ruff format --check` / `mypy axiom` | `All checks passed!` / `61 files already formatted` / `Success: no issues found in 36 source files` |
 | Coverage (`--cov=axiom`), 47-test tree | **83% total** (1417 stmts, 239 missed) |
 | After adding the section 3 gap tests (same day) | `70 passed, 2 warnings`, 0 skipped; coverage ~88% in a scratch run |
+| 2026-09-29, after the volume, AUC-null, snapshot-repair and paper-feature changes | `74 passed, 2 warnings`, 0 skipped |
 
 The two warnings come from third-party code (`starlette.testclient` deprecations), not
 from Axiom.

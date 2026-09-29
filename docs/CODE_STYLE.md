@@ -16,7 +16,7 @@ All checks passed!
 $ uv run ruff format --check axiom tests scripts alembic
 61 files already formatted
 
-$ uv run mypy axiom
+$ uv run mypy axiom scripts
 Success: no issues found in 36 source files
 ```
 

@@ -102,7 +102,8 @@ validation, `404`, `429`, `401`) — no custom error envelope. Stored timestamps
 - Auth: required. Gate: no.
 - `200 [{id, config, state}, ...]`, up to 100, ordered by `updated_at DESC` (`axiom/api.py`).
 
-### `POST /paper` (reuses `ResearchRequest`; `kind`/`features` accepted but unused)
+### `POST /paper` (`PaperRequest`: `ResearchRequest` without `kind`)
+- `features` is stored on the account and used on every replay (accounts created before 2026-09-29 replay with default features). Sending `kind` is a 422.
 - Auth: required. Gate: no (only writes a row — `axiom/paper.py:17-35` does no bar replay).
 - `422 "Unknown paper strategy"` if `strategy` isn't in `STRATEGIES` or is `"ml"` (`axiom/api.py:182-183`); `422` also on unknown dataset/symbols via `ValueError` from `paper.create_account` (`axiom/paper.py:21-22`).
 - Success: `200 {"id": <uuid>}`.
@@ -111,7 +112,8 @@ validation, `404`, `429`, `401`) — no custom error envelope. Stored timestamps
 - Auth: required. Gate: **yes**, same pattern as `/experiments` (`axiom/api.py:199-206`).
 - Body: `as_of: date` (required), `dataset_id: str | None` (same hex-64 pattern, `axiom/api.py:33`).
 - `404 "Unknown paper account"` when the id is unknown (`LookupError` in `axiom/paper.py`); `422` when the id is not a UUID-shaped string.
-- `422` on `ValueError` — including: `as_of` not before today (`axiom/paper.py:39-40`), incompatible dataset/provider/symbols (`axiom/paper.py:49-54`), no bars at the requested date (`axiom/paper.py:71`), clock moving backwards (`axiom/paper.py:75`), or previously-processed bars having changed under a fixed `last_session` (`axiom/paper.py:77-78`).
+- `422` on `ValueError` — including: `as_of` not before today (`axiom/paper.py:39-40`), incompatible dataset/provider/symbols (`axiom/paper.py:49-54`), no bars at the requested date (`axiom/paper.py:71`), or no bars at the requested date.
+- `409` (`paper.PaperConflict`) when the request conflicts with recorded state: the clock moving backwards, or previously processed bars having changed under a fixed `last_session`.
 - Delegates to `axiom.paper.advance`, which takes a Postgres row lock (`with_for_update`, `axiom/paper.py:42`) and replays the account's full history deterministically — see the `database` agent for the locking/idempotency contract.
 - Same response shape on both branches: `{last_session, input_hash, provider, mode, alerts, fills, equity, account}`. The idempotent-repeat branch returns the stored `row.state` (only ever written by the fresh-session branch) with `alerts` refreshed.
 
