@@ -1,10 +1,10 @@
 {
-  "id": "cce4d2ce-753e-4193-b86c-02e90ab5972a",
+  "id": "cd6c8eda-e6f4-4c6a-8230-389257000a29",
   "provenance": {
-    "dataset_id": "8ce51d9e4b3b7110a5192a08da96b28e1afd2eacca9b5a63f85c679f317426ad",
+    "dataset_id": "c4b279e65554a11830208df10448a9b7b10bb5715e864fa40ddc2a69ecd3be23",
     "provider": "synthetic-v2",
-    "code_commit": "810b8e7dde16320ac8300cdd7fddd8357d8301db",
-    "code_tree_sha256": "2c1d1b6e635a84179711f03583510f91f0b8c039f54d7cc631d019b11eb56ca4",
+    "code_commit": "856baa99f922bc1d268c30b2b918b1ff2ef79d71",
+    "code_tree_sha256": "051841b04e6d8fbd43d3c0068e62a71e4bde1b3989206e5c6b45b1adf3667fb1",
     "working_tree_dirty": false,
     "config": {
       "symbols": [
@@ -43,7 +43,36 @@
       },
       "ml": {}
     },
-    "created_at": "2026-09-16T17:06:17.725262+00:00"
+    "created_at": "2026-09-29T01:26:38.206559+00:00"
+  },
+  "data_note": "synthetic-v2 is a noise-free deterministic price formula, so near-perfect classification and trading metrics are expected; they validate software behaviour, not predictive skill.",
+  "pooled_test_auc": {
+    "naive": 0.4507151094827519,
+    "logistic": 0.9933504512794189,
+    "random_forest": 0.9931531951569139,
+    "xgboost": 0.9940643839500763
+  },
+  "null_auc_reference": {
+    "surrogates": 20,
+    "method": "driftless Gaussian random walk, volatility matched to the input closes",
+    "models": {
+      "naive": {
+        "mean": 0.4802152330249867,
+        "p95": 0.5119830804199392
+      },
+      "logistic": {
+        "mean": 0.50099728682536,
+        "p95": 0.545791578468899
+      },
+      "random_forest": {
+        "mean": 0.5000287286574159,
+        "p95": 0.5257834296766103
+      },
+      "xgboost": {
+        "mean": 0.49883249489667686,
+        "p95": 0.5343006924605027
+      }
+    }
   },
   "folds": [
     {
@@ -72,7 +101,7 @@
         "logistic": {
           "accuracy": 0.9444444444444444,
           "balanced_accuracy": 0.9448084677419355,
-          "log_loss": 0.11685740803402561,
+          "log_loss": 0.11685740803402603,
           "roc_auc": 0.9934475806451613
         },
         "random_forest": {
@@ -115,7 +144,7 @@
         "logistic": {
           "accuracy": 0.9523809523809523,
           "balanced_accuracy": 0.9537348151977255,
-          "log_loss": 0.18013227277187546,
+          "log_loss": 0.18013227277187524,
           "roc_auc": 0.9829413285086586
         },
         "random_forest": {
@@ -158,7 +187,7 @@
         "logistic": {
           "accuracy": 0.9603174603174603,
           "balanced_accuracy": 0.962962962962963,
-          "log_loss": 0.11210955599750423,
+          "log_loss": 0.11210955599750412,
           "roc_auc": 0.9956275720164609
         },
         "random_forest": {
@@ -201,7 +230,7 @@
         "logistic": {
           "accuracy": 0.9523809523809523,
           "balanced_accuracy": 0.9523809523809523,
-          "log_loss": 0.10810003108240601,
+          "log_loss": 0.10810003108240597,
           "roc_auc": 0.9949609473418998
         },
         "random_forest": {
@@ -244,7 +273,7 @@
         "logistic": {
           "accuracy": 0.9761904761904762,
           "balanced_accuracy": 0.9767857142857143,
-          "log_loss": 0.07584871455053735,
+          "log_loss": 0.0758487145505378,
           "roc_auc": 0.9989795918367347
         },
         "random_forest": {
@@ -287,7 +316,7 @@
         "logistic": {
           "accuracy": 0.9603174603174603,
           "balanced_accuracy": 0.9631687774618765,
-          "log_loss": 0.10106892818517695,
+          "log_loss": 0.10106892818517697,
           "roc_auc": 0.9948307056086845
         },
         "random_forest": {
@@ -330,7 +359,7 @@
         "logistic": {
           "accuracy": 0.9682539682539683,
           "balanced_accuracy": 0.96875,
-          "log_loss": 0.09361346252321064,
+          "log_loss": 0.09361346252321046,
           "roc_auc": 0.9964717741935484
         },
         "random_forest": {
@@ -373,7 +402,7 @@
         "logistic": {
           "accuracy": 0.9920634920634921,
           "balanced_accuracy": 0.9931506849315068,
-          "log_loss": 0.06623795299117417,
+          "log_loss": 0.06623795299117391,
           "roc_auc": 0.9987076764021712
         },
         "random_forest": {
@@ -416,7 +445,7 @@
         "logistic": {
           "accuracy": 0.9682539682539683,
           "balanced_accuracy": 0.9699074074074074,
-          "log_loss": 0.0934091097633701,
+          "log_loss": 0.09340910976337007,
           "roc_auc": 0.9953703703703703
         },
         "random_forest": {
@@ -459,7 +488,7 @@
         "logistic": {
           "accuracy": 0.9444444444444444,
           "balanced_accuracy": 0.9441361916771753,
-          "log_loss": 0.11696866423992663,
+          "log_loss": 0.11696866423992662,
           "roc_auc": 0.9921815889029004
         },
         "random_forest": {
@@ -502,7 +531,7 @@
         "logistic": {
           "accuracy": 0.9365079365079365,
           "balanced_accuracy": 0.9400361850607393,
-          "log_loss": 0.12670120432432977,
+          "log_loss": 0.12670120432432946,
           "roc_auc": 0.9922460584130267
         },
         "random_forest": {
@@ -545,7 +574,7 @@
         "logistic": {
           "accuracy": 0.9444444444444444,
           "balanced_accuracy": 0.9446428571428571,
-          "log_loss": 0.11659448825948421,
+          "log_loss": 0.11659448825948307,
           "roc_auc": 0.9910714285714286
         },
         "random_forest": {
@@ -588,7 +617,7 @@
         "logistic": {
           "accuracy": 0.9682539682539683,
           "balanced_accuracy": 0.96875,
-          "log_loss": 0.1240957459571859,
+          "log_loss": 0.12409574595718588,
           "roc_auc": 0.9921875
         },
         "random_forest": {
@@ -631,7 +660,7 @@
         "logistic": {
           "accuracy": 0.9603174603174603,
           "balanced_accuracy": 0.9633575883575883,
-          "log_loss": 0.11999739912827076,
+          "log_loss": 0.11999739912827083,
           "roc_auc": 0.9916839916839917
         },
         "random_forest": {
@@ -674,7 +703,7 @@
         "logistic": {
           "accuracy": 0.9761904761904762,
           "balanced_accuracy": 0.9768245838668375,
-          "log_loss": 0.06643692033928905,
+          "log_loss": 0.06643692033928862,
           "roc_auc": 0.9976952624839949
         },
         "random_forest": {
@@ -694,15 +723,15 @@
   ],
   "trading": {
     "naive": {
-      "total_return": 0.39676236765445383,
-      "cagr": 0.04546625415854799,
-      "annualized_return": 0.046899775178285794,
-      "annualized_volatility": 0.06846230262678413,
-      "sharpe": 0.6850452494120093,
-      "sortino": 1.0086859417220158,
-      "calmar": 0.1898381538404887,
-      "max_drawdown": -0.23950008593504846,
-      "average_drawdown": -0.09675519959761347,
+      "total_return": 0.39705875897016085,
+      "cagr": 0.04549577038952868,
+      "annualized_return": 0.04692676827576241,
+      "annualized_volatility": 0.06844326196751972,
+      "sharpe": 0.6856302129204752,
+      "sortino": 1.009571263506636,
+      "calmar": 0.19000367124331075,
+      "max_drawdown": -0.23944679643199474,
+      "average_drawdown": -0.09673298661324543,
       "drawdown_duration_bars": 663,
       "win_rate": null,
       "loss_rate": null,
@@ -712,90 +741,90 @@
       "expectancy": null,
       "number_of_trades": 0,
       "average_holding_bars": null,
-      "turnover": 0.8486230969346509,
-      "exposure": 0.9988583711032728,
-      "var_95": 0.007324268358600966,
-      "cvar_95": 0.009925871158947002,
-      "beta": 1.0,
-      "benchmark_correlation": 0.9999999999999998
+      "turnover": 0.8481580418468264,
+      "exposure": 0.9985677448709003,
+      "var_95": 0.007322511354204624,
+      "cvar_95": 0.009923361197792208,
+      "beta": 1.0000000000000002,
+      "benchmark_correlation": 1.0
     },
     "logistic": {
-      "total_return": 18.118479592256644,
-      "cagr": 0.48084745411773455,
-      "annualized_return": 0.39462255871897084,
-      "annualized_volatility": 0.04242161951706175,
-      "sharpe": 9.3023925821657,
-      "sortino": 78.4760530205434,
-      "calmar": 39.63692351279031,
-      "max_drawdown": -0.012131301107730308,
-      "average_drawdown": -0.0009476523773122246,
+      "total_return": 18.12271862462778,
+      "cagr": 0.4808911388666064,
+      "annualized_return": 0.3946490711373939,
+      "annualized_volatility": 0.042348325599490096,
+      "sharpe": 9.319118655830533,
+      "sortino": 81.23447725944875,
+      "calmar": 43.599198421976304,
+      "max_drawdown": -0.011029816057907427,
+      "average_drawdown": -0.0009200821753973075,
       "drawdown_duration_bars": 21,
       "win_rate": 1.0,
       "loss_rate": 0.0,
-      "average_winner": 6405.084812875481,
+      "average_winner": 6474.5908779257015,
       "average_loser": null,
       "profit_factor": null,
-      "expectancy": 6405.084812875481,
-      "number_of_trades": 274,
-      "average_holding_bars": 17.937956204379564,
-      "turnover": 124.24996861648464,
-      "exposure": 0.5069277937827018,
-      "var_95": 0.0006182558602622179,
-      "cvar_95": 0.0011413973285559656,
-      "beta": 0.5193459623787461,
-      "benchmark_correlation": 0.8381485867146556
+      "expectancy": 6474.5908779257015,
+      "number_of_trades": 271,
+      "average_holding_bars": 17.96309963099631,
+      "turnover": 124.25864057247801,
+      "exposure": 0.5055942009940576,
+      "var_95": 0.0005923230737135243,
+      "cvar_95": 0.0010998939238798507,
+      "beta": 0.518255200140423,
+      "benchmark_correlation": 0.8376028078349202
     },
     "random_forest": {
-      "total_return": 18.073846719293595,
-      "cagr": 0.48038698597169094,
-      "annualized_return": 0.39430754032629634,
-      "annualized_volatility": 0.042352826147425596,
-      "sharpe": 9.31006443238887,
-      "sortino": 77.28319457311189,
-      "calmar": 39.67029322998591,
-      "max_drawdown": -0.012109489163255716,
-      "average_drawdown": -0.0010248039283944745,
-      "drawdown_duration_bars": 21,
+      "total_return": 17.98214007618686,
+      "cagr": 0.47943792845776856,
+      "annualized_return": 0.39366188307549566,
+      "annualized_volatility": 0.04230413497839153,
+      "sharpe": 9.305517847760596,
+      "sortino": 77.27749619974388,
+      "calmar": 43.829368003118326,
+      "max_drawdown": -0.010938736977080254,
+      "average_drawdown": -0.0010110187859168908,
+      "drawdown_duration_bars": 22,
       "win_rate": 1.0,
       "loss_rate": 0.0,
-      "average_winner": 6342.696388910204,
+      "average_winner": 6447.325765027934,
       "average_loser": null,
       "profit_factor": null,
-      "expectancy": 6342.696388910204,
-      "number_of_trades": 276,
-      "average_holding_bars": 17.731884057971016,
-      "turnover": 125.21483890420845,
-      "exposure": 0.5046681322199349,
-      "var_95": 0.0005887275378192336,
-      "cvar_95": 0.0011614214943826949,
-      "beta": 0.5185924211391925,
-      "benchmark_correlation": 0.8382919041199839
+      "expectancy": 6447.325765027934,
+      "number_of_trades": 270,
+      "average_holding_bars": 17.659259259259258,
+      "turnover": 125.449252324974,
+      "exposure": 0.5029165981841545,
+      "var_95": 0.000594452006847962,
+      "cvar_95": 0.0011509587887678857,
+      "beta": 0.5175822411717357,
+      "benchmark_correlation": 0.8373889914153251
     },
     "xgboost": {
-      "total_return": 17.970976254141856,
-      "cagr": 0.47932212458110257,
-      "annualized_return": 0.39359182782922925,
-      "annualized_volatility": 0.042504786674118944,
-      "sharpe": 9.259941259013221,
-      "sortino": 68.56896040281954,
-      "calmar": 31.40123965305603,
-      "max_drawdown": -0.01526443318407189,
-      "average_drawdown": -0.0011257494879159588,
+      "total_return": 17.921977709768907,
+      "cagr": 0.47881315613246356,
+      "annualized_return": 0.39324359224126626,
+      "annualized_volatility": 0.04243667349145,
+      "sharpe": 9.26659796556617,
+      "sortino": 69.76393290720704,
+      "calmar": 33.668262457203355,
+      "max_drawdown": -0.014221498859381176,
+      "average_drawdown": -0.0011071712097036656,
       "drawdown_duration_bars": 21,
-      "win_rate": 0.9893238434163701,
-      "loss_rate": 0.010676156583629894,
-      "average_winner": 6275.2933218868975,
-      "average_loser": -304.29001438644167,
-      "profit_factor": 1911.040412112725,
-      "expectancy": 6205.048659933801,
-      "number_of_trades": 281,
-      "average_holding_bars": 18.02135231316726,
-      "turnover": 125.85898061471015,
-      "exposure": 0.5104524497679823,
-      "var_95": 0.0006524750817740399,
-      "cvar_95": 0.0012767405070462643,
-      "beta": 0.5215525503460945,
-      "benchmark_correlation": 0.8400627630795071
+      "win_rate": 0.9889705882352942,
+      "loss_rate": 0.011029411764705883,
+      "average_winner": 6473.628739480639,
+      "average_loser": -289.53421547137674,
+      "profit_factor": 2004.836317399416,
+      "expectancy": 6399.035030418668,
+      "number_of_trades": 272,
+      "average_holding_bars": 17.948529411764707,
+      "turnover": 125.78372784375073,
+      "exposure": 0.5083513761843272,
+      "var_95": 0.0006390525469253061,
+      "cvar_95": 0.0012596897345874933,
+      "beta": 0.5205804705628976,
+      "benchmark_correlation": 0.8396092952264458
     }
   }
 }
