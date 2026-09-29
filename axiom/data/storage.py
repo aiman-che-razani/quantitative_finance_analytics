@@ -114,7 +114,8 @@ def _fsync(path: Path) -> None:
     """Flush a file or directory entry to disk so a published snapshot survives power loss."""
     if path.is_dir() and os.name == "nt":
         return  # Windows cannot open a directory for fsync
-    fd = os.open(path, os.O_RDONLY)
+    # Windows fsync (_commit) needs a writable descriptor; POSIX accepts read-only.
+    fd = os.open(path, os.O_RDWR if os.name == "nt" else os.O_RDONLY)
     try:
         os.fsync(fd)
     finally:
