@@ -18,7 +18,11 @@ def test_native_matches_reference_when_built():
 
     from axiom.features.kernels import native_mean
 
-    library = Path("native") / ("rolling.dll" if os.name == "nt" else "rolling.so")
+    library = (
+        Path(__file__).resolve().parents[1]
+        / "native"
+        / ("rolling.dll" if os.name == "nt" else "rolling.so")
+    )
     if not library.exists():
         pytest.skip("Run scripts/build_native.py first")
     values = np.random.default_rng(17).normal(size=1000)

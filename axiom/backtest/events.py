@@ -11,6 +11,8 @@ from axiom.backtest.orders import Order, execution_price
 from axiom.portfolio.account import Account
 from axiom.risk.engine import RiskConfig, assess
 
+MAX_EVENTS = 20000  # cap on recorded events per replay; events_truncated reports overflow
+
 STRATEGIES = [
     "buy_hold",
     "ema_trend",
@@ -126,9 +128,16 @@ def run_events(
     last_equity = config.initial_capital
     fee_rate = config.commission_bps / 10000
 
+    truncated = False
+
     def event(event_type, **values):
-        if record_events and len(events) < 20000:
+        nonlocal truncated
+        if not record_events:
+            return
+        if len(events) < MAX_EVENTS:
             events.append({**values, "event_type": event_type})
+        else:
+            truncated = True
 
     def orders_at(i):
         nonlocal counter
@@ -186,7 +195,9 @@ def run_events(
         bars = {s: groups[s][i] for s in symbols}
         marks = {s: bar["open"] for s, bar in bars.items()}
         day_start = last_equity
-        liquidity = {s: float(bars[s]["volume"]) * config.participation for s in symbols}
+        # Orders fill at the open, so cap size on the last completed bar's volume: this
+        # bar's full-day volume is not known until its close.
+        liquidity = {s: float(groups[s][i - 1]["volume"]) * config.participation for s in symbols}
         for s in symbols:
             event("MARKET", timestamp=str(stamps[i]), symbol=s)
             p = account.positions.get(s)
@@ -202,7 +213,14 @@ def run_events(
                 hit_take = take and (
                     bars[s]["high"] >= take if direction > 0 else bars[s]["low"] <= take
                 )
-                if hit_stop or hit_take:
+                # A market exit decided at the prior close fills at this open, before the
+                # bar can reach the take-profit level, so it must not be upgraded to the limit.
+                exiting_at_open = (
+                    s in pending
+                    and pending[s].kind == "market"
+                    and np.sign(pending[s].units) == -direction
+                )
+                if hit_stop or (hit_take and not exiting_at_open):
                     counter += 1
                     pending[s] = Order(
                         str(counter),
@@ -274,7 +292,7 @@ def run_events(
         "positions": final["positions"],
         "first_index": first,
         "events": events,
-        "events_truncated": len(events) >= 20000,
+        "events_truncated": truncated,
         "pending_orders": [asdict(o) for o in pending.values()],
         "final": final,
     }

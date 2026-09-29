@@ -1,3 +1,5 @@
+"""Extended portfolio analytics: risk, drawdown, rolling and benchmark-relative metrics."""
+
 from datetime import datetime
 
 import numpy as np
@@ -49,7 +51,7 @@ def analyze(result: dict, benchmark: dict | None = None) -> dict:
     beta = correlation = None
     if benchmark and len(benchmark["equity"]) == len(rows):
         b = np.array([r["equity"] for r in benchmark["equity"]])
-        br = b[1:] / b[:-1] - 1
+        br = np.divide(b[1:], b[:-1], out=np.ones(len(b) - 1), where=b[:-1] != 0) - 1
         if np.var(br) > 1e-15:
             beta = float(np.cov(returns, br, ddof=1)[0, 1] / np.var(br, ddof=1))
         if std > 1e-15 and np.std(br) > 1e-15:

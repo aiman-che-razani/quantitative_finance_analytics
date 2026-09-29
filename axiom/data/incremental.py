@@ -45,7 +45,8 @@ def ingest_incremental(
         db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": int(stream[:15], 16)})
         head = db.get(HeadRow, stream)
         parent = head.dataset_id if head else None
-        combined = pl.concat([store.read(parent), incoming]) if parent else incoming
+        previous = store.read(parent) if parent else None
+        combined = pl.concat([previous, incoming]) if previous is not None else incoming
         keys = [c for c in combined.columns if c != "ingested_at"]
         distinct = combined.unique(subset=keys)
         if distinct.group_by(["instrument", "timestamp"]).len().filter(pl.col("len") > 1).height:
@@ -66,7 +67,7 @@ def ingest_incremental(
             "rows": combined.height,
             "incoming_rows": incoming.height,
             "duplicate_rows": sum(f.height for f in frames)
-            + (store.read(parent).height if parent else 0)
+            + (previous.height if previous is not None else 0)
             - combined.height,
             "instruments": reports,
             "duration_seconds": time.perf_counter() - started,

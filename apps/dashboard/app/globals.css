@@ -105,7 +105,10 @@ button:hover {
 }
 button:disabled {
   opacity: 0.45;
-  cursor: wait;
+  cursor: not-allowed;
+}
+nav button:focus-visible {
+  outline-offset: -3px; /* nav scrolls, so an outside outline would be clipped */
 }
 nav button {
   background: none;
@@ -172,7 +175,8 @@ small {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* Tiles never shrink below their widest value ("-23.45%" at 24px). */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 12px;
   margin: 24px 0;
 }
@@ -286,9 +290,6 @@ a {
   .controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .metrics {
-    grid-template-columns: repeat(3, 1fr);
-  }
   .heatmap {
     grid-template-columns: repeat(6, 1fr);
   }
@@ -302,9 +303,6 @@ a {
   }
 }
 @media (max-width: 450px) {
-  .metrics {
-    grid-template-columns: repeat(2, 1fr);
-  }
   .controls {
     grid-template-columns: 1fr;
   }
@@ -314,4 +312,23 @@ a {
   nav button {
     padding: 13px 10px;
   }
+  .heatmap {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+/* Semantic status colors reuse the existing danger/warning tokens. */
+.alert-warn,
+.alert-danger {
+  font-size: 11px;
+  letter-spacing: 1px;
+  margin-right: 8px;
+}
+.alert-warn,
+.run-running {
+  color: #e5ca8a;
+}
+.alert-danger,
+.run-failed,
+.run-interrupted {
+  color: #e39d9d;
 }

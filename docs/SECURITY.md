@@ -56,10 +56,15 @@ Each item below was re-checked against the current tree; all 11 still hold. No r
    for `API_TOKEN`/`process.env.API_TOKEN` — the only matches are in `route.ts:20,23`. The
    client-side `api()` helper (`app/page.tsx:54-60`) calls same-origin `/api/...` with no
    credential attached. Holds.
-4. **The proxy validates before forwarding.** `route.ts:9-14` rejects any path outside
+4. **The proxy validates before forwarding.** First, it answers only requests whose `Host`
+   hostname is loopback (`127.0.0.1`, `localhost`, `[::1]`; override with `AXIOM_ALLOWED_HOSTS`)
+   and otherwise returns 403 — this blocks DNS rebinding, where a malicious page resolves its own
+   name to 127.0.0.1 and would otherwise pass the Origin-equals-Host check (added 2026-09-28).
+   It then rejects any path outside
    `health|instruments|datasets|strategies|experiments|paper|market` (plus the narrow
-   `/[a-zA-Z0-9-]+` segment and `/advance`) with 404; `route.ts:16-18` rejects a POST with a
-   cross-origin `Origin` header with 403; `route.ts:27-28` rejects a body over 64 KiB with 413;
+   `/[a-zA-Z0-9-]+` segment and `/advance`) with 404; it rejects a POST with a
+   cross-origin or malformed (e.g. `null`) `Origin` header with 403; it rejects a body over
+   64 KiB (declared `Content-Length`, then UTF-8 bytes) with 413;
    `route.ts:40` sets a 300s `AbortSignal.timeout`. All four still present and unchanged from the
    brief's description; the regex has not been loosened and matches the current route set exactly
    (`health, instruments, datasets, strategies, experiments, paper, market`).
@@ -111,9 +116,11 @@ Each item below was re-checked against the current tree; all 11 still hold. No r
     `psycopg[binary]>=3.2,<4`, `pydantic>=2.10,<3`, `alembic>=1.14,<2`, `uvicorn>=0.34,<1`,
     `xgboost>=3,<4`, etc.). Both Dockerfiles install with `--frozen`
     (`Dockerfile:6`, `apps/dashboard/Dockerfile:4` `npm ci`). Lock files (`uv.lock`,
-    `apps/dashboard/package-lock.json`) present. No live CVE lookup was performed this pass (no
-    network access in this review) — this remains a periodic manual task, not something this
-    review can certify by itself.
+    `apps/dashboard/package-lock.json`) present. On 2026-09-28 `npm audit --package-lock-only`
+    reported 0 vulnerabilities and `pip-audit` over the exported `uv.lock` (all extras) reported
+    none. This remains a periodic manual task. Docker base images (`python:3.12-slim`,
+    `node:22-alpine`, `postgres:18-alpine`, `ghcr.io/astral-sh/uv:0.12.15`) are pinned by digest
+    (2026-09-29); `.github/dependabot.yml` proposes weekly updates as reviewable PRs.
 
 ## Known gaps (register)
 
@@ -189,8 +196,8 @@ anywhere in `axiom/`; `"use client"` / `API_TOKEN` usage outside the one expecte
 
 - [x] Auth still required on every route (including any new one)? — single `Depends(auth)` at
       app level, one `FastAPI()` instance, no `APIRouter`.
-- [x] Proxy allow-list and Origin check unchanged or correctly widened? — regex and Origin check
-      both unchanged (`route.ts:9-18`).
+- [x] Proxy Host allow-list, path allow-list and Origin check unchanged or correctly widened? —
+      loopback Host allow-list added 2026-09-28; path regex unchanged.
 - [x] Any new pydantic field has explicit bounds (`ge`/`le`) and `allow_inf_nan=False` where
       numeric? — no new fields introduced this pass; existing fields all bounded.
 - [x] Snapshot reads still hash-verified and path-contained? — `SnapshotStore.read`

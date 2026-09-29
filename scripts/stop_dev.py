@@ -8,6 +8,8 @@ root = Path(__file__).resolve().parents[1]
 for connection in psutil.net_connections(kind="tcp"):
     if connection.status != "LISTEN" or connection.laddr.port not in [8820, 8821]:
         continue
+    if connection.pid is None:
+        raise RuntimeError("Cannot identify listener; rerun with sufficient privileges")
     process = psutil.Process(connection.pid)
     command = " ".join(process.cmdline())
     expected = root if connection.laddr.port == 8820 else root / "apps/dashboard"

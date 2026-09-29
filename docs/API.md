@@ -100,9 +100,10 @@ validation, `404`, `429`, `401`) — no custom error envelope. Stored timestamps
 
 ### `GET /paper`
 - Auth: required. Gate: no.
-- `200 [{id, config, state}, ...]`, **up to 100, no `ORDER BY`** (`axiom/api.py:172-178`). This is inconsistent with `/datasets` and `/experiments`, which both order by `created_at DESC`. Without an explicit order, Postgres does not guarantee row order for `LIMIT 100` is stable or newest-first; once there are more than 100 paper accounts, a newly created one is not guaranteed to appear in this list, and `page.tsx`'s `refresh()` (`page.tsx:256-268`) has no client-side sort to compensate. Recommend adding `.order_by(PaperRow.updated_at.desc())` (or similar) to `axiom/api.py:177`.
+- `200 [{id, config, state}, ...]`, up to 100, ordered by `updated_at DESC` (`axiom/api.py`).
 
-### `POST /paper` (reuses `ResearchRequest`; `kind`/`features` accepted but unused)
+### `POST /paper` (`PaperRequest`: `ResearchRequest` without `kind`)
+- `features` is stored on the account and used on every replay (accounts created before 2026-09-29 replay with default features). Sending `kind` is a 422.
 - Auth: required. Gate: no (only writes a row — `axiom/paper.py:17-35` does no bar replay).
 - `422 "Unknown paper strategy"` if `strategy` isn't in `STRATEGIES` or is `"ml"` (`axiom/api.py:182-183`); `422` also on unknown dataset/symbols via `ValueError` from `paper.create_account` (`axiom/paper.py:21-22`).
 - Success: `200 {"id": <uuid>}`.
@@ -110,11 +111,11 @@ validation, `404`, `429`, `401`) — no custom error envelope. Stored timestamps
 ### `POST /paper/{identity}/advance` (`AdvanceRequest`)
 - Auth: required. Gate: **yes**, same pattern as `/experiments` (`axiom/api.py:199-206`).
 - Body: `as_of: date` (required), `dataset_id: str | None` (same hex-64 pattern, `axiom/api.py:33`).
-- `422` on `ValueError` — including: `as_of` not before today (`axiom/paper.py:39-40`), unknown account (`axiom/paper.py:44`), incompatible dataset/provider/symbols (`axiom/paper.py:49-54`), no bars at the requested date (`axiom/paper.py:71`), clock moving backwards (`axiom/paper.py:75`), or previously-processed bars having changed under a fixed `last_session` (`axiom/paper.py:77-78`).
+- `404 "Unknown paper account"` when the id is unknown (`LookupError` in `axiom/paper.py`); `422` when the id is not a UUID-shaped string.
+- `422` on `ValueError` — including: `as_of` not before today (`axiom/paper.py:39-40`), incompatible dataset/provider/symbols (`axiom/paper.py:49-54`), no bars at the requested date (`axiom/paper.py:71`), or no bars at the requested date.
+- `409` (`paper.PaperConflict`) when the request conflicts with recorded state: the clock moving backwards, or previously processed bars having changed under a fixed `last_session`.
 - Delegates to `axiom.paper.advance`, which takes a Postgres row lock (`with_for_update`, `axiom/paper.py:42`) and replays the account's full history deterministically — see the `database` agent for the locking/idempotency contract.
-- **Response shape is not uniform.** Two distinct success shapes:
-  - *Fresh session* (new `as_of` beyond the last recorded session): `{last_session, input_hash, provider, mode, alerts, fills, equity, account}` (`axiom/paper.py:96-106`).
-  - *Repeat of the same last session* (idempotent replay, input unchanged): returns early with only `{..., alerts}` patched onto the *existing* `row.state` (`axiom/paper.py:79-85`) — this omits `fills`, `equity`, `account` if the state was structured differently by an older code path, and in general callers should not assume those keys are always present. `page.tsx`'s Paper accounts tab already reads `p.state.account?.equity` optionally (`page.tsx:589`), so it's defensively coded against this, but this nuance isn't captured anywhere else and is easy to regress.
+- Same response shape on both branches: `{last_session, input_hash, provider, mode, alerts, fills, equity, account}`. The idempotent-repeat branch returns the stored `row.state` (only ever written by the fresh-session branch) with `alerts` refreshed.
 
 ## Shared request models
 
@@ -226,18 +227,13 @@ add/extend a `TestClient`-based test in `tests/test_platform.py`.
    correct. Both files now carry an explicit comment saying so, so a future
    reader doesn't "fix" this into a regression. Flag to `security` only if
    the host port mapping itself is ever loosened.
-   thing enforcing loopback-only access. Flag to the `security` agent.
 2. **Fixed 2026-09-28 — `GET /paper` now orders by `updated_at DESC`**
    before `LIMIT 100` (`axiom/api.py`), matching `/datasets` and
    `/experiments`. (Was previously the only list endpoint with no explicit
    ordering, risking a newly created/updated account dropping out of the
    dashboard's Paper accounts tab once there are more than 100 rows.)
-3. **Low — `/paper/{id}/advance` response shape varies by branch.**
-   `axiom/paper.py:79-85` (idempotent-repeat branch) returns a narrower dict
-   than `axiom/paper.py:96-106` (fresh-session branch). Not a bug — `page.tsx`
-   already reads the relevant field optionally (`page.tsx:589`) — but
-   undocumented until this doc, and worth keeping in mind if another
-   frontend/consumer is added.
+3. **Withdrawn 2026-09-28 — `/paper/{id}/advance` response shape.** Re-checked: both branches return
+   the same keys (see the route above).
 4. **Low — proxy allow-list is looser than the real route set.**
    `route.ts:10`'s regex accepts path shapes (e.g. `health/x`, verb-agnostic
    matching) that don't correspond to any real FastAPI route; FastAPI's own
@@ -252,9 +248,10 @@ add/extend a `TestClient`-based test in `tests/test_platform.py`.
 
 No auth gaps found: every route sits behind the single app-level
 `Depends(auth)`; no route bypasses it. No missing gate on either
-state-mutating slow route. No validation-bound gaps found in `ResearchRequest`
-/ `AdvanceRequest` / `ExecutionConfig` / `RiskConfig` / `FeatureConfig`
-relative to what's used downstream.
+state-mutating slow route. Fixed 2026-09-28: duplicate `symbols` were accepted and
+crashed `POST /experiments` with a plain-text 500; `ResearchRequest` now rejects
+them with 422. `AdvanceRequest` now forbids unknown fields, and path ids are
+pattern-validated (hex-64 datasets, UUID experiments/paper accounts).
 
 ## Drift from the source `.claude/agents/api.md` brief
 
@@ -269,15 +266,7 @@ line numbers cited throughout this document.
 
 ## Test status
 
-Ran `tests/test_platform.py` read-only (`.venv/Scripts/python.exe -m pytest -q
-tests/test_platform.py`) via the project's Python 3.12 venv (the system
-default `python` is 3.9 and fails to even import `axiom.common.models`, which
-uses `X | None` syntax — use `.venv/Scripts/python.exe`, not `python`, in this
-repo). Result: **4 passed, 2 skipped** (the 2 skips are the
-`AXIOM_TEST_DATABASE_URL`-gated Postgres integration tests, skipped because
-that env var isn't set in this environment — expected, not a failure).
-`test_api_requires_authentication` passed, confirming `401` on missing auth,
-`200`/`"ok"` on valid auth, and `422` on a malformed `dataset_id`. No POST
-route that mutates real state was called against the real dev servers; the
-passing test uses its own rolled-back-transaction Postgres fixture and
-in-memory `Settings`, not `scripts/dev.py`'s running instances.
+With `AXIOM_TEST_DATABASE_URL` pointing at a PostgreSQL database, `uv run pytest -q`
+runs the whole suite including the API tests in `tests/test_platform.py`
+(auth, duplicate symbols, unknown account 404, malformed ids). See `docs/TESTING.md`
+for setup.

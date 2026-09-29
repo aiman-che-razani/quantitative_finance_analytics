@@ -28,7 +28,7 @@ jobs:
       - run: uv run alembic upgrade head
       - run: uv run ruff check axiom tests scripts alembic
       - run: uv run ruff format --check axiom tests scripts alembic
-      - run: uv run mypy axiom
+      - run: uv run mypy axiom scripts
       - run: uv run python scripts/build_native.py
       - run: uv run pytest -q
   dashboard:
@@ -44,6 +44,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/dashboard/package-lock.json
       - run: npm ci
+      - run: npm run typecheck
       - run: npm run build
   docker:
     runs-on: ubuntu-latest
@@ -54,6 +55,7 @@ jobs:
         run: |
           echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
           echo "API_TOKEN=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          echo "GIT_COMMIT=$GITHUB_SHA" >> "$GITHUB_ENV"
       - run: docker compose up --build -d
       - name: Wait for the API to report healthy
         run: |

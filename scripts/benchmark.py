@@ -6,8 +6,10 @@ import platform
 import statistics
 import threading
 import time
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -48,6 +50,7 @@ print("Prepared", bars.height, "bars", flush=True)
 values = bars["close"].to_numpy()
 reference = numpy_mean(values, 200)
 kernels = {}
+kernel: Callable[..., Any]
 for name, kernel in [
     ("python", python_mean),
     ("numpy", numpy_mean),
@@ -110,7 +113,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 fig, ax = plt.subplots(figsize=(8, 4))
-ax.bar(kernels.keys(), [v["median_seconds"] for v in kernels.values()], color="#47836a")
+ax.bar(list(kernels), [v["median_seconds"] for v in kernels.values()], color="#47836a")
 ax.set_yscale("log")
 ax.set_ylabel("Median seconds (log scale)")
 ax.set_title(f"Rolling mean · {bars.height:,} synthetic rows · window 200")

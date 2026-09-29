@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   LineSeries,
@@ -45,40 +45,69 @@ type Experiment = {
 };
 type Paper = {
   id: string;
+  config: { dataset_id: string; symbols: string[]; strategy: string };
   state: {
     last_session: string | null;
     alerts: string[];
+    last_error?: string;
     account?: { equity: number };
   };
 };
-async function api(path: string, body?: unknown) {
-  const r = await fetch(
-    `/api/${path}`,
-    body
-      ? {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }
-      : undefined,
-  );
-  const data = await r.json();
-  if (!r.ok)
-    throw new Error(
-      typeof data.detail === "string"
-        ? data.detail
-        : JSON.stringify(data.detail),
+async function api<T>(path: string, body?: unknown): Promise<T> {
+  let r: Response;
+  try {
+    r = await fetch(
+      `/api/${path}`,
+      body
+        ? {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          }
+        : undefined,
     );
-  return data;
+  } catch {
+    throw new Error(
+      "Dashboard server unreachable. Check experiment history before retrying.",
+    );
+  }
+  // Upstream errors are not always JSON (e.g. a plain-text 500), so parse defensively.
+  const text = await r.text();
+  let data: { detail?: unknown } | null = null;
+  try {
+    data = JSON.parse(text);
+  } catch {}
+  if (!r.ok) {
+    const detail = data?.detail;
+    throw new Error(
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail
+              .map(
+                (e: { loc?: unknown[]; msg?: string }) =>
+                  `${(e.loc ?? []).slice(1).join(".")}: ${e.msg}`,
+              )
+              .join(" · ")
+          : `Research API error ${r.status}. Check experiment history before retrying.`,
+    );
+  }
+  if (data === null)
+    throw new Error(
+      "Research API returned an unreadable response. Check experiment history before retrying.",
+    );
+  return data as T;
 }
 function Plot({
   rows,
   benchmark,
   title,
+  caption,
 }: {
   rows: Equity[];
   benchmark?: Equity[];
   title: string;
+  caption?: string;
 }) {
   const element = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -88,7 +117,7 @@ function Plot({
       height: 300,
       layout: {
         background: { type: ColorType.Solid, color: "#111a21" },
-        textColor: "#a5b7c4",
+        textColor: "#9eb0bd",
         attributionLogo: true,
       },
       grid: {
@@ -123,9 +152,12 @@ function Plot({
   return (
     <section className="panel">
       <h2>{title}</h2>
-      <div ref={element} aria-label={title} />
+      <div ref={element} role="img" aria-label={title} />
       <small>
-        Drag to pan · Scroll to zoom · Green: strategy · Blue: buy and hold
+        {caption ??
+          (benchmark?.length
+            ? "Drag to pan · Scroll to zoom · Green: strategy · Blue: buy and hold"
+            : "Drag to pan · Scroll to zoom · Green: strategy")}
       </small>
     </section>
   );
@@ -151,7 +183,7 @@ function MarketPlot({ bars }: { bars: Bar[] }) {
       height: 420,
       layout: {
         background: { type: ColorType.Solid, color: "#111a21" },
-        textColor: "#a5b7c4",
+        textColor: "#9eb0bd",
       },
       grid: {
         vertLines: { color: "#1a2832" },
@@ -189,7 +221,11 @@ function MarketPlot({ bars }: { bars: Bar[] }) {
   return (
     <section className="panel">
       <h2>Daily prices · EMA 200 · Bollinger 200 / 1.19</h2>
-      <div ref={element} aria-label="Daily prices · EMA 200 · Bollinger 200 / 1.19" />
+      <div
+        ref={element}
+        role="img"
+        aria-label="Daily prices · EMA 200 · Bollinger 200 / 1.19"
+      />
       <small>
         Last 3,000 sessions at most. Pan and zoom to inspect daily bars.
       </small>
@@ -214,7 +250,7 @@ function Table({ rows }: { rows: Record<string, unknown>[] }) {
               {columns.map((c) => (
                 <td key={c}>
                   {typeof r[c] === "number"
-                    ? (r[c] as number).toLocaleString(undefined, {
+                    ? (r[c] as number).toLocaleString("en-US", {
                         maximumFractionDigits: 4,
                       })
                     : String(r[c] ?? "—")}
@@ -226,8 +262,8 @@ function Table({ rows }: { rows: Record<string, unknown>[] }) {
       </table>
       {rows.length > 100 && (
         <small>
-          First 100 of {rows.length.toLocaleString()} records. Export JSON for
-          the complete ledger.
+          First 100 of {rows.length.toLocaleString("en-US")} records. Export
+          JSON for the complete ledger.
         </small>
       )}
     </div>
@@ -235,6 +271,39 @@ function Table({ rows }: { rows: Record<string, unknown>[] }) {
 }
 const pct = (value: unknown) =>
   typeof value === "number" ? `${(value * 100).toFixed(2)}%` : "—";
+// Metrics stored as fractions; shown as percentages everywhere so a table row
+// never disagrees in unit with the tile above it.
+const PCT_METRICS = new Set([
+  "total_return",
+  "cagr",
+  "annualized_return",
+  "annualized_volatility",
+  "max_drawdown",
+  "average_drawdown",
+  "win_rate",
+  "loss_rate",
+  "exposure",
+  "var_95",
+  "cvar_95",
+]);
+const MONEY_METRICS = new Set([
+  "average_winner",
+  "average_loser",
+  "expectancy",
+  "turnover",
+]);
+const money = (value: number) =>
+  "$" +
+  value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+function formatMetric(metric: string, value: unknown) {
+  if (typeof value !== "number") return "—";
+  if (PCT_METRICS.has(metric)) return pct(value);
+  if (MONEY_METRICS.has(metric)) return money(value);
+  return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
 export default function Workspace() {
   const [datasets, setDatasets] = useState<Dataset[]>([]),
     [dataset, setDataset] = useState("");
@@ -246,7 +315,7 @@ export default function Workspace() {
     [result, setResult] = useState<Result | null>(null);
   const [bars, setBars] = useState<Bar[]>([]);
   const [tab, setTab] = useState("Research"),
-    [busy, setBusy] = useState(false),
+    [busy, setBusy] = useState(""), // status message while an action runs; "" = idle
     [error, setError] = useState(""),
     [cost, setCost] = useState(2.5),
     [short, setShort] = useState(false),
@@ -255,10 +324,10 @@ export default function Workspace() {
     [order, setOrder] = useState("market");
   async function refresh() {
     const [ds, st, ex, pa] = await Promise.all([
-      api("datasets"),
-      api("strategies"),
-      api("experiments"),
-      api("paper"),
+      api<Dataset[]>("datasets"),
+      api<{ strategies: string[] }>("strategies"),
+      api<Experiment[]>("experiments"),
+      api<Paper[]>("paper"),
     ]);
     setDatasets(ds);
     setDataset((old) => old || ds[0]?.id || "");
@@ -269,24 +338,29 @@ export default function Workspace() {
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
   }, []);
-  async function action(fn: () => Promise<void>) {
-    setBusy(true);
+  async function action(fn: () => Promise<void>, label = "Working…") {
+    setBusy(label);
     setError("");
     try {
       await fn();
-      await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      // Refresh even after a failure: the error tells users to check history.
+      await refresh().catch(() => {});
+      setBusy("");
     }
   }
   const request = {
     dataset_id: dataset,
-    symbols: symbols
-      .split(",")
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean),
+    symbols: [
+      ...new Set(
+        symbols
+          .split(",")
+          .map((s) => s.trim().toUpperCase())
+          .filter(Boolean),
+      ),
+    ],
     strategy,
     execution: {
       commission_bps: cost,
@@ -296,6 +370,18 @@ export default function Workspace() {
     features: { ema_period: ema },
   };
   const metrics = result?.metrics;
+  const drawdownRows = useMemo(
+    () =>
+      result?.simulation?.equity.flatMap((r, i) => {
+        const value = (result.metrics?.drawdown as number[] | undefined)?.[i];
+        return typeof value === "number" ? [{ ...r, equity: value * 100 }] : [];
+      }) ?? [],
+    [result],
+  );
+  const provenanceNote = (provider?: string) =>
+    provider?.includes("synthetic")
+      ? "SYNTHETIC DATA — engineering demonstration, not observed market performance."
+      : "Provider: " + (provider || "none");
   const selected = datasets.find((d) => d.id === dataset);
   function exportResult() {
     const url = URL.createObjectURL(
@@ -344,6 +430,7 @@ export default function Workspace() {
         ].map((t) => (
           <button
             className={tab === t ? "active" : ""}
+            aria-current={tab === t ? "page" : undefined}
             onClick={() => setTab(t)}
             key={t}
           >
@@ -356,12 +443,9 @@ export default function Workspace() {
           {error}
         </div>
       )}
-      {busy && (
-        <p role="status">
-          Running research… You can find its durable status in experiment
-          history.
-        </p>
-      )}
+      <div role="status" aria-live="polite">
+        {busy && <p>{busy}</p>}
+      </div>
       {(tab === "Research" || tab === "ML research") && (
         <>
           <section className="panel controls">
@@ -446,16 +530,16 @@ export default function Workspace() {
             </label>
             <button
               className="primary"
-              disabled={busy || !dataset}
+              disabled={Boolean(busy) || !dataset}
               onClick={() =>
                 action(async () => {
                   setResult(
-                    await api("experiments", {
+                    await api<Result>("experiments", {
                       ...request,
                       kind: tab === "ML research" ? "ml" : "backtest",
                     }),
                   );
-                })
+                }, "Running research… You can find its durable status in experiment history.")
               }
             >
               {tab === "ML research"
@@ -464,12 +548,16 @@ export default function Workspace() {
               ↗
             </button>
           </section>
+          {!datasets.length && (
+            <p>
+              No dataset versions yet. Ingest one with scripts/ingest.py, then
+              reload.
+            </p>
+          )}
           <p className="source">
-            {selected?.provider.includes("synthetic")
-              ? "SYNTHETIC DATA — engineering demonstration, not observed market performance."
-              : "Provider: " + (selected?.provider || "none")}{" "}
-            · {selected?.rows.toLocaleString()} bars · Next-open fills · 1 bp
-            slippage + 1 bp spread
+            {provenanceNote(selected?.provider)} ·{" "}
+            {selected ? selected.rows.toLocaleString("en-US") : "—"} bars ·
+            Next-open fills · 1 bp slippage + 1 bp spread
           </p>
           {tab === "ML research" && (
             <p>
@@ -496,30 +584,52 @@ export default function Workspace() {
               />
             </label>
             <button
-              disabled={busy || !dataset}
+              disabled={Boolean(busy) || !dataset}
               onClick={() =>
-                action(async () =>
-                  setBars(
-                    await api(
-                      `market/${dataset}?symbol=${encodeURIComponent(symbols.trim().toUpperCase())}`,
+                action(
+                  async () =>
+                    setBars(
+                      await api<Bar[]>(
+                        `market/${dataset}?symbol=${encodeURIComponent(symbols.split(",")[0].trim().toUpperCase())}`,
+                      ),
                     ),
-                  ),
+                  "Loading market data…",
                 )
               }
             >
               Load market data
             </button>
           </div>
-          <MarketPlot bars={bars} />
-          <details className="panel">
-            <summary>OHLCV and indicators</summary>
-            <Table rows={bars.slice(-100)} />
-          </details>
+          <p className="source">
+            {provenanceNote(selected?.provider)} · Dataset{" "}
+            {dataset.slice(0, 12) || "—"}
+          </p>
+          {bars.length ? (
+            <>
+              <MarketPlot bars={bars} />
+              <details className="panel">
+                <summary>OHLCV and indicators</summary>
+                <Table rows={bars.slice(-100)} />
+              </details>
+            </>
+          ) : (
+            <p>
+              No market data loaded. Enter a symbol and choose Load market data.
+            </p>
+          )}
         </section>
       )}
       {tab === "Experiments" && (
         <section className="panel">
-          <h2>Experiment history</h2>
+          <div className="result-heading">
+            <h2>Experiment history</h2>
+            <button
+              disabled={Boolean(busy)}
+              onClick={() => action(async () => {}, "Refreshing…")}
+            >
+              Refresh
+            </button>
+          </div>
           <div className="scroll">
             <table>
               <thead>
@@ -534,23 +644,40 @@ export default function Workspace() {
               <tbody>
                 {experiments.map((e) => (
                   <tr key={e.id}>
-                    <td>{e.created_at.slice(0, 16)}</td>
+                    <td>{e.created_at.slice(0, 16).replace("T", " ")} UTC</td>
                     <td>
                       {e.kind} / {e.config.strategy}
                     </td>
-                    <td title={e.error || undefined}>{e.status}</td>
+                    <td>
+                      <span className={`run-${e.status.toLowerCase()}`}>
+                        {e.status}
+                      </span>
+                      {e.error && (
+                        <small
+                          style={{
+                            display: "block",
+                            whiteSpace: "normal",
+                            maxWidth: 360,
+                          }}
+                        >
+                          {e.error}
+                        </small>
+                      )}
+                    </td>
                     <td>{e.config.symbols.join(", ")}</td>
                     <td>
                       <button
-                        disabled={busy || e.status !== "SUCCEEDED"}
+                        disabled={Boolean(busy) || e.status !== "SUCCEEDED"}
                         onClick={() =>
                           action(async () => {
-                            const r = await api(`experiments/${e.id}`);
+                            const r = await api<{ result: Result }>(
+                              `experiments/${e.id}`,
+                            );
                             setResult({ ...r.result, id: e.id });
                             setTab(
                               e.kind === "ml" ? "ML research" : "Research",
                             );
-                          })
+                          }, "Opening experiment…")
                         }
                       >
                         Open
@@ -572,11 +699,11 @@ export default function Workspace() {
             in Research.
           </p>
           <button
-            disabled={busy || !dataset}
+            disabled={Boolean(busy) || !dataset}
             onClick={() =>
               action(async () => {
-                await api("paper", request);
-              })
+                await api<{ id: string }>("paper", request);
+              }, "Creating paper account…")
             }
           >
             Create paper account
@@ -584,20 +711,45 @@ export default function Workspace() {
           {papers.map((p) => (
             <article className="paper" key={p.id}>
               <code>{p.id}</code>
+              <p className="source">
+                {provenanceNote(
+                  datasets.find((d) => d.id === p.config.dataset_id)?.provider,
+                )}{" "}
+                · Dataset {p.config.dataset_id.slice(0, 12)} ·{" "}
+                {p.config.strategy} on {p.config.symbols.join(", ")}
+              </p>
               <p>
                 Last session: {p.state.last_session || "Not started"} · Equity:{" "}
-                {p.state.account?.equity.toLocaleString() || "—"}
+                {p.state.account ? money(p.state.account.equity) : "—"}
               </p>
-              <p>{p.state.alerts.join(" · ")}</p>
+              {p.state.alerts.length > 0 && (
+                <p>
+                  {p.state.alerts.map((a) => (
+                    <span
+                      key={a}
+                      className={
+                        a === "TICK_FAILED" ? "alert-danger" : "alert-warn"
+                      }
+                    >
+                      {a.replaceAll("_", " ")}
+                    </span>
+                  ))}
+                </p>
+              )}
+              {p.state.last_error && (
+                <p>
+                  <small>Last tick error: {p.state.last_error}</small>
+                </p>
+              )}
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = new FormData(e.currentTarget);
                   action(async () => {
-                    await api(`paper/${p.id}/advance`, {
+                    await api<unknown>(`paper/${p.id}/advance`, {
                       as_of: form.get("date"),
                     });
-                  });
+                  }, "Updating paper ledger…");
                 }}
               >
                 <label>
@@ -609,133 +761,138 @@ export default function Workspace() {
                     defaultValue="2025-12-31"
                   />
                 </label>
-                <button disabled={busy}>Advance ledger</button>
+                <button disabled={Boolean(busy)}>Advance ledger</button>
               </form>
             </article>
           ))}
         </section>
       )}
-      {result && (tab === "Research" || tab === "ML research") && (
-        <>
-          <div className="result-heading">
-            <h2>Research result</h2>
-            <button onClick={exportResult}>Export JSON ↓</button>
-          </div>
-          <p className="source">
-            {result.provenance?.provider?.includes("synthetic")
-              ? "SYNTHETIC DATA — engineering demonstration, not observed market performance."
-              : result.provenance?.provider
-                ? "Provider: " + result.provenance.provider
-                : "—"}{" "}
-            · Dataset {result.provenance?.dataset_id?.slice(0, 12) ?? "—"} ·{" "}
-            {result.id}
-          </p>
-          {metrics && (
-            <div className="metrics">
-              {[
-                ["Total return", pct(metrics.total_return)],
-                ["CAGR", pct(metrics.cagr)],
-                [
-                  "Sharpe",
-                  typeof metrics.sharpe === "number"
-                    ? metrics.sharpe.toFixed(2)
-                    : "—",
-                ],
-                ["Max drawdown", pct(metrics.max_drawdown)],
-                ["Win rate", pct(metrics.win_rate)],
-                ["Trades", String(metrics.number_of_trades)],
-              ].map(([label, value]) => (
-                <div key={label}>
-                  <span>{label}</span>
-                  <strong>{value}</strong>
-                </div>
-              ))}
+      {result &&
+        (tab === "ML research"
+          ? Boolean(result.folds)
+          : tab === "Research" && !result.folds) && (
+          <>
+            <div className="result-heading">
+              <h2>Research result</h2>
+              <button onClick={exportResult}>Export JSON ↓</button>
             </div>
-          )}
-          {result.simulation && (
-            <>
-              <Plot
-                title="Portfolio equity"
-                rows={result.simulation.equity}
-                benchmark={result.benchmark?.equity}
-              />
-              <Plot
-                title="Drawdown"
-                rows={result.simulation.equity.map((r, i) => ({
-                  ...r,
-                  equity: ((metrics?.drawdown as number[])?.[i] || 0) * 100,
-                }))}
-              />
-              <section className="panel">
-                <h2>Monthly returns</h2>
-                <div className="heatmap">
-                  {Object.entries(
-                    (metrics?.monthly_returns || {}) as Record<string, number>,
-                  ).map(([m, v]) => (
-                    <div
-                      key={m}
-                      style={{
-                        background:
-                          v >= 0
-                            ? `rgba(80,170,115,${Math.min(0.8, 0.12 + Math.abs(v) * 8)})`
-                            : `rgba(210,90,90,${Math.min(0.8, 0.12 + Math.abs(v) * 8)})`,
-                      }}
-                    >
-                      <small>{m}</small>
-                      <strong>{pct(v)}</strong>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <details className="panel">
-                <summary>Full performance and risk metrics</summary>
-                <Table
-                  rows={Object.entries(metrics || {})
-                    .filter(([, v]) => typeof v === "number" || v === null)
-                    .map(([metric, value]) => ({ metric, value }))}
+            <p className="source">
+              {result.provenance?.provider
+                ? provenanceNote(result.provenance.provider)
+                : "—"}{" "}
+              · Dataset {result.provenance?.dataset_id?.slice(0, 12) ?? "—"} ·{" "}
+              {result.id}
+            </p>
+            {metrics && (
+              <div className="metrics">
+                {[
+                  ["Total return", pct(metrics.total_return)],
+                  ["CAGR", pct(metrics.cagr)],
+                  [
+                    "Sharpe",
+                    typeof metrics.sharpe === "number"
+                      ? metrics.sharpe.toFixed(2)
+                      : "—",
+                  ],
+                  ["Max drawdown", pct(metrics.max_drawdown)],
+                  ["Win rate", pct(metrics.win_rate)],
+                  ["Trades", String(metrics.number_of_trades)],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
+            {result.simulation && (
+              <>
+                <Plot
+                  title="Portfolio equity"
+                  rows={result.simulation.equity}
+                  benchmark={result.benchmark?.equity}
                 />
-              </details>
-              <details className="panel">
-                <summary>Execution ledger</summary>
-                <Table rows={result.simulation.fills} />
-              </details>
-              <details className="panel">
-                <summary>Closed trades</summary>
-                <Table rows={result.simulation.trades} />
-              </details>
-              <details className="panel">
-                <summary>Risk decisions</summary>
-                <Table rows={result.simulation.risk_decisions} />
-              </details>
-            </>
-          )}
-          {result.out_of_sample_trading &&
-            Object.entries(result.out_of_sample_trading).map(([name, r]) => (
-              <section key={name}>
-                <h2>{name} · Out-of-sample trading</h2>
-                <p>
-                  Total return {pct(r.metrics.total_return)} · Drawdown{" "}
-                  {pct(r.metrics.max_drawdown)}
-                </p>
-                <Plot title={`${name} equity`} rows={r.equity} />
+                <Plot
+                  title="Drawdown (%)"
+                  caption="Drag to pan · Scroll to zoom · Percent below running peak"
+                  rows={drawdownRows}
+                />
+                <section className="panel">
+                  <h2>Monthly returns</h2>
+                  <div className="heatmap">
+                    {Object.entries(
+                      (metrics?.monthly_returns || {}) as Record<
+                        string,
+                        number
+                      >,
+                    ).map(([m, v]) => (
+                      <div
+                        key={m}
+                        style={{
+                          background:
+                            v >= 0
+                              ? `rgba(80,170,115,${Math.min(0.45, 0.12 + Math.abs(v) * 8)})`
+                              : `rgba(210,90,90,${Math.min(0.45, 0.12 + Math.abs(v) * 8)})`,
+                        }}
+                      >
+                        <small>{m}</small>
+                        <strong>{pct(v)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <details className="panel">
+                  <summary>Full performance and risk metrics</summary>
+                  <Table
+                    rows={Object.entries(metrics || {})
+                      .filter(([, v]) => typeof v === "number" || v === null)
+                      .map(([metric, value]) => ({
+                        metric,
+                        value: formatMetric(metric, value),
+                      }))}
+                  />
+                </details>
+                <details className="panel">
+                  <summary>Execution ledger</summary>
+                  <Table rows={result.simulation.fills} />
+                </details>
+                <details className="panel">
+                  <summary>Closed trades</summary>
+                  <Table rows={result.simulation.trades} />
+                </details>
+                <details className="panel">
+                  <summary>Risk decisions</summary>
+                  <Table rows={result.simulation.risk_decisions} />
+                </details>
+              </>
+            )}
+            {result.out_of_sample_trading &&
+              Object.entries(result.out_of_sample_trading).map(([name, r]) => (
+                <section key={name}>
+                  <h2>{name} · Out-of-sample trading</h2>
+                  <p>
+                    Total return {pct(r.metrics.total_return)} · Drawdown{" "}
+                    {pct(r.metrics.max_drawdown)}
+                  </p>
+                  <Plot title={`${name} equity`} rows={r.equity} />
+                </section>
+              ))}
+            {result.folds && (
+              <section className="panel">
+                <h2>Prediction evaluation by test fold</h2>
+                <Table
+                  rows={result.folds.flatMap((f) =>
+                    Object.entries(f.models).map(([model, m]) => ({
+                      test_start: f.test[0].slice(0, 10),
+                      model,
+                      ...m,
+                    })),
+                  )}
+                />
               </section>
-            ))}
-          {result.folds && (
-            <section className="panel">
-              <h2>Prediction evaluation by test fold</h2>
-              <Table
-                rows={result.folds.flatMap((f) =>
-                  Object.entries(f.models).map(([model, m]) => ({
-                    test_start: f.test[0].slice(0, 10),
-                    model,
-                    ...m,
-                  })),
-                )}
-              />
-            </section>
-          )}
-        </>
-      )}
+            )}
+          </>
+        )}
       <footer>
         <p>
           Daily bars · Shared portfolio accounting · Zero risk-free rate · Open

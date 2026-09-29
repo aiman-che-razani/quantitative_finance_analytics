@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     environment:
       POSTGRES_USER: axiom
       POSTGRES_DB: axiom
@@ -13,7 +13,10 @@ services:
       timeout: 3s
       retries: 20
   migrate:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unavailable}
     environment: &backend
       DATABASE_URL: postgresql+psycopg://axiom:${POSTGRES_PASSWORD}@postgres:5432/axiom
       API_TOKEN: ${API_TOKEN:?Set API_TOKEN}
@@ -22,7 +25,10 @@ services:
       postgres:
         condition: service_healthy
   api:
-    build: .
+    build:
+      context: .
+      args:
+        GIT_COMMIT: ${GIT_COMMIT:-unavailable}
     environment: *backend
     # Host-side loopback-only exposure: this is the actual isolation boundary.
     # The container binds 0.0.0.0 internally (see Dockerfile) so the

@@ -62,6 +62,42 @@ def test_snapshot_idempotence_and_tamper_detection(bars, tmp_path):
         store.read("../outside")
 
 
+def test_snapshot_write_cleans_staging_and_tolerates_concurrent_publish(
+    bars, tmp_path, monkeypatch
+):
+    store = SnapshotStore(tmp_path)
+
+    def fail(self, frame, identity, stage):
+        (stage / "partial").mkdir(parents=True)
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(SnapshotStore, "_stage", fail)
+        with pytest.raises(OSError, match="disk full"):
+            store.write(bars)
+    assert not any((tmp_path / "validated").glob("*"))
+    # A writer that loses the rename race to a concurrent publisher returns its identity.
+    real_stage = SnapshotStore._stage
+
+    def race(self, frame, identity, stage):
+        real_stage(self, frame, identity, stage)
+        real_stage(self, frame, identity, stage.with_name(identity))  # the other writer
+
+    monkeypatch.setattr(SnapshotStore, "_stage", race)
+    identity = store.write(bars)
+    assert [p.name for p in (tmp_path / "validated").iterdir()] == [identity]
+    assert store.read(identity).height == bars.height
+
+
+def test_rewriting_a_corrupted_snapshot_repairs_it(bars, tmp_path):
+    store = SnapshotStore(tmp_path)
+    identity = store.write(bars)
+    next((tmp_path / "validated" / identity).rglob("bars.parquet")).write_bytes(b"torn")
+    assert store.write(bars) == identity
+    assert store.read(identity).height == bars.height
+    assert len(list((tmp_path / "validated").glob(identity + ".corrupt-*"))) == 1
+
+
 def test_timestamp_validation_and_csv_roundtrip(bars, tmp_path):
     from axiom.common.models import UNIVERSE
     from axiom.data.providers import CSVProvider

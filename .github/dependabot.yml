@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # Base images are pinned by digest; these PRs are the deliberate way to move them.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: "/apps/dashboard"
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly

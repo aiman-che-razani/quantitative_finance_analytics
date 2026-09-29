@@ -4,11 +4,13 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from axiom.settings import Settings
 
 root = Path(__file__).resolve().parents[1]
+node = shutil.which("node") or sys.exit("node not found on PATH")
 runtime = root / ".runtime"
 runtime.mkdir(exist_ok=True)
 settings = Settings()
@@ -28,7 +30,7 @@ commands = {
         "8820",
     ],
     "dashboard": [
-        shutil.which("node"),
+        node,
         str(root / "apps/dashboard/node_modules/next/dist/bin/next"),
         "start",
         "--hostname",
@@ -46,7 +48,7 @@ for name, command in commands.items():
             env=env,
             stdout=output,
             stderr=subprocess.STDOUT,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),  # Windows-only flag
         )
         pids[name] = process.pid
 (runtime / "servers.json").write_text(json.dumps(pids))

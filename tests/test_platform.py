@@ -93,6 +93,26 @@ def test_walk_forward_reports_all_four_models():
     for trading in result["out_of_sample_trading"].values():
         assert trading["equity"]
         assert "sharpe" in trading["metrics"]
+    assert set(result["pooled_test_auc"]) == names
+
+
+def test_random_walk_surrogate_keeps_shape_and_volatility():
+    import numpy as np
+
+    from axiom.ml.walkforward import random_walk_surrogate
+
+    start, end = date(2015, 1, 1), date(2021, 1, 1)
+    frame, _ = validate(SyntheticProvider().fetch(UNIVERSE[0], start, end), "SPY", start, end)
+    surrogate = random_walk_surrogate(frame, seed=3)
+    assert surrogate.height == frame.height
+    assert surrogate["volume"].to_list() == frame.sort("timestamp")["volume"].to_list()
+    assert (surrogate["high"] >= surrogate["low"]).all()
+
+    def vol(f):
+        return float(np.std(np.diff(np.log(f["close"].to_numpy())), ddof=1))
+
+    assert vol(surrogate) == pytest.approx(vol(frame), rel=0.1)
+    assert random_walk_surrogate(frame, seed=3)["close"].to_list() == surrogate["close"].to_list()
 
 
 @pytest.fixture
@@ -235,7 +255,9 @@ def test_record_tick_failure_merges_alerts(pg):
         row.state = {**row.state, "alerts": ["STALE_INPUT"]}
     paper.record_tick_failure(sessions, identity, "boom again")
     with sessions() as db:
-        assert db.get(PaperRow, identity).state["alerts"] == ["STALE_INPUT", "TICK_FAILED"]
+        state = db.get(PaperRow, identity).state
+        assert state["alerts"] == ["STALE_INPUT", "TICK_FAILED"]
+        assert state["last_error"] == "boom again"
     # A missing account is a no-op, not an error (the caller already logged it).
     paper.record_tick_failure(sessions, "00000000-0000-0000-0000-000000000000", "boom")
 
@@ -293,6 +315,36 @@ def test_api_requires_authentication(pg):
             ).status_code
             == 422
         )
+        # Non-ASCII credentials must fail closed as 401, not crash compare_digest.
+        assert (
+            client.get("/health", headers=[(b"authorization", b"Bearer \xe9")]).status_code == 401
+        )
+
+
+def test_api_rejects_duplicate_symbols_and_unknown_accounts(pg):
+    _, settings = pg
+    auth = {"Authorization": "Bearer " + settings.api_token}
+    with TestClient(create_app(settings)) as client:
+        duplicate = client.post(
+            "/experiments", headers=auth, json={"dataset_id": "a" * 64, "symbols": ["SPY", "SPY"]}
+        )
+        assert duplicate.status_code == 422
+        missing = client.post(
+            "/paper/00000000-0000-0000-0000-000000000000/advance",
+            headers=auth,
+            json={"as_of": "2020-06-01"},
+        )
+        assert missing.status_code == 404
+        assert client.get("/experiments/not-a-uuid", headers=auth).status_code == 422
+
+
+def test_advance_request_rejects_unknown_fields():
+    from pydantic import ValidationError
+
+    from axiom.api import AdvanceRequest
+
+    with pytest.raises(ValidationError):
+        AdvanceRequest.model_validate({"as_of": "2024-01-02", "bogus": 1})
 
 
 def test_mark_serialization_optimization_preserves_replay(monkeypatch):
@@ -307,3 +359,232 @@ def test_mark_serialization_optimization_preserves_replay(monkeypatch):
 
     monkeypatch.setattr(Account, "mark", full_mark)
     assert run_events(event_frame(), "buy_hold", config) == optimized
+
+
+@pytest.mark.parametrize(
+    "exit_kwargs,exit_bar,exit_price",
+    [
+        ({"stop_loss": 0.05}, {"low": 90.0}, 95.0),
+        ({"take_profit": 0.05}, {"high": 106.0}, 105.0),
+    ],
+)
+def test_stop_loss_and_take_profit_exit_at_trigger_price(exit_kwargs, exit_bar, exit_price):
+    frame = event_frame().with_columns(pl.lit(1e6).alias("volume"))
+    for column, value in exit_bar.items():
+        frame = frame.with_columns(
+            pl.when(pl.int_range(pl.len()) == 2).then(value).otherwise(pl.col(column)).alias(column)
+        )
+    config = ExecutionConfig(
+        commission_bps=0, slippage_bps=0, spread_bps=0, participation=1, **exit_kwargs
+    )
+    result = run_events(frame, "buy_hold", config)
+    entry, exit_fill = result["fills"][0], result["fills"][1]
+    # stop_loss also caps entry size via risk_per_trade: 100000 * 0.02 / 0.05 = 40000.
+    expected_units = 400.0 if "stop_loss" in exit_kwargs else 1000.0
+    assert entry["timestamp"].startswith("2020-01-02")
+    assert entry["units"] == pytest.approx(expected_units)
+    assert entry["price"] == pytest.approx(100.0)
+    assert exit_fill["timestamp"].startswith("2020-01-03")
+    assert exit_fill["units"] == pytest.approx(-expected_units)
+    assert exit_fill["price"] == pytest.approx(exit_price)
+    assert result["trades"][0]["pnl"] == pytest.approx(expected_units * (exit_price - 100.0))
+
+
+class ShiftedStableProvider(StableSyntheticProvider):
+    """Same dates as StableSyntheticProvider, every price 1% higher: a 'corrected' feed."""
+
+    def fetch(self, instrument, start, end):
+        frame = super().fetch(instrument, start, end)
+        return frame.with_columns(pl.col(c) * 1.01 for c in ("open", "high", "low", "close"))
+
+
+def test_paper_rejects_changed_history_and_foreign_provider(pg):
+    sessions, settings = pg
+    original = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    identity = paper.create_account(
+        sessions, original["dataset_id"], ["SPY"], "buy_hold", ExecutionConfig()
+    )
+    before = paper.advance(sessions, settings, identity, date(2020, 6, 1))
+    # Same provider name and symbols, but different bars for already-replayed sessions.
+    corrected = ingest_incremental(
+        sessions,
+        settings.data_root,
+        ShiftedStableProvider(),
+        UNIVERSE[:2],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    with pytest.raises(ValueError, match="Previously processed bars changed"):
+        paper.advance(sessions, settings, identity, date(2020, 12, 1), corrected["dataset_id"])
+    foreign = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 2, 1),  # different content, so not deduplicated onto the original row
+        "test-other-provider",
+    )
+    with pytest.raises(ValueError, match="Incompatible dataset"):
+        paper.advance(sessions, settings, identity, date(2020, 12, 1), foreign["dataset_id"])
+    with pytest.raises(LookupError, match="Unknown paper account"):
+        paper.advance(sessions, settings, "00000000-0000-0000-0000-000000000000", date(2020, 6, 1))
+    with pytest.raises(ValueError, match="Only prior completed"):
+        paper.advance(sessions, settings, identity, date.today())
+    with sessions() as db:
+        row = db.get(PaperRow, identity)
+        assert row.state == before
+        assert row.config["dataset_id"] == original["dataset_id"]
+
+
+def test_failed_experiment_is_recorded_as_failed(pg):
+    sessions, settings = pg
+    # ~150 sessions: short of the 200-session EMA/Bollinger warm-up.
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2020, 6, 1),
+        date(2021, 1, 1),
+        "test-short",
+    )
+    with pytest.raises(ValueError, match="Insufficient feature warm-up"):
+        run_experiment(
+            sessions,
+            settings,
+            dataset["dataset_id"],
+            ["SPY"],
+            "ema_trend",
+            ExecutionConfig(),
+            FeatureConfig(),
+            "backtest",
+        )
+    with sessions() as db:
+        rows = (
+            db.query(ExperimentRow).filter(ExperimentRow.dataset_id == dataset["dataset_id"]).all()
+        )
+        assert len(rows) == 1
+        assert rows[0].status == "FAILED"
+        assert "Insufficient feature warm-up" in rows[0].error
+        assert rows[0].finished_at is not None
+        assert rows[0].result is None
+
+
+def test_incremental_conflicting_overlap_is_rejected_and_head_unchanged(pg):
+    from axiom.metadata import HeadRow
+
+    sessions, settings = pg
+    first = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-conflict",
+    )
+    with pytest.raises(ValueError, match="Conflicting overlap"):
+        ingest_incremental(
+            sessions,
+            settings.data_root,
+            ShiftedStableProvider(),
+            UNIVERSE[:1],
+            date(2020, 12, 1),
+            date(2022, 1, 1),
+            "test-conflict",
+        )
+    with sessions() as db:
+        heads = db.query(HeadRow).filter(HeadRow.dataset_id == first["dataset_id"]).all()
+        assert len(heads) == 1
+
+
+def test_api_experiment_and_paper_round_trip(pg, monkeypatch):
+    import threading
+
+    sessions, settings = pg
+    dataset = ingest_incremental(
+        sessions,
+        settings.data_root,
+        StableSyntheticProvider(),
+        UNIVERSE[:1],
+        date(2019, 1, 1),
+        date(2021, 1, 1),
+        "test-stable",
+    )
+    monkeypatch.setattr("axiom.api.database", lambda url: (sessions.kw["bind"].engine, sessions))
+    headers = {"Authorization": "Bearer " + settings.api_token}
+    body = {"dataset_id": dataset["dataset_id"], "symbols": ["SPY"], "strategy": "buy_hold"}
+    with TestClient(create_app(settings)) as client:
+        created = client.post("/experiments", headers=headers, json=body)
+        assert created.status_code == 200
+        fetched = client.get(f"/experiments/{created.json()['id']}", headers=headers).json()
+        assert fetched["status"] == "SUCCEEDED"
+        assert fetched["result"]["provenance"]["dataset_id"] == dataset["dataset_id"]
+        missing = client.get("/experiments/00000000-0000-0000-0000-000000000000", headers=headers)
+        assert missing.status_code == 404
+        ml = client.post("/experiments", headers=headers, json={**body, "strategy": "ml"})
+        assert ml.status_code == 422
+        qqq = client.post("/experiments", headers=headers, json={**body, "symbols": ["QQQ"]})
+        assert qqq.status_code == 422
+        market = client.get(f"/market/{dataset['dataset_id']}?symbol=QQQ", headers=headers)
+        assert market.status_code == 404
+        account = client.post("/paper", headers=headers, json=body).json()["id"]
+        advanced = client.post(
+            f"/paper/{account}/advance", headers=headers, json={"as_of": "2020-12-31"}
+        )
+        assert advanced.status_code == 200
+        assert advanced.json()["fills"]
+        backwards = client.post(
+            f"/paper/{account}/advance", headers=headers, json={"as_of": "2020-06-01"}
+        )
+        assert backwards.status_code == 409
+        tuned = client.post(
+            "/paper", headers=headers, json={**body, "features": {"ema_period": 50}}
+        ).json()["id"]
+        with sessions() as db:
+            assert db.get(PaperRow, tuned).config["features"]["ema_period"] == 50
+        assert (
+            client.post("/paper", headers=headers, json={**body, "kind": "ml"}).status_code == 422
+        )
+    busy = threading.BoundedSemaphore(1)
+    busy.acquire()
+    monkeypatch.setattr("axiom.api.threading.BoundedSemaphore", lambda n: busy)
+    with TestClient(create_app(settings)) as client:
+        assert client.post("/experiments", headers=headers, json=body).status_code == 429
+
+
+def test_take_profit_does_not_replace_a_market_exit_filling_at_the_open():
+    # Long from day 1; the day-2 close signals flat, so the exit fills at the day-3 open
+    # (101). Day 3's high of 120 must not upgrade that exit to the 5% take-profit limit.
+    frame = event_frame().with_columns(
+        pl.lit(1e9).alias("volume"),
+        pl.Series("prediction", [1, 1, 0, 0, 0]),
+        pl.Series("open", [100.0, 100.0, 100.0, 101.0, 101.0]),
+        pl.Series("high", [101.0, 101.0, 101.0, 120.0, 102.0]),
+    )
+    config = ExecutionConfig(
+        commission_bps=0, slippage_bps=0, spread_bps=0, participation=1, take_profit=0.05
+    )
+    result = run_events(frame, "ml", config)
+    exit_fill = result["fills"][1]
+    assert exit_fill["timestamp"].startswith("2020-01-04")
+    assert exit_fill["price"] == pytest.approx(101.0)
+
+
+def test_fill_size_is_capped_by_prior_bar_volume_not_execution_day_volume():
+    # The day-2 open fill may only use volume known at the day-1 close.
+    frame = event_frame().with_columns(pl.Series("volume", [100.0, 1e9, 1e9, 1e9, 1e9]))
+    config = ExecutionConfig(commission_bps=0, slippage_bps=0, spread_bps=0, participation=0.1)
+    first = run_events(frame, "buy_hold", config)["fills"][0]
+    assert first["timestamp"].startswith("2020-01-02")
+    assert first["units"] == pytest.approx(10.0)

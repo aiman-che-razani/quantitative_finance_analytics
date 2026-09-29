@@ -37,10 +37,18 @@ Verified against `globals.css` and `page.tsx` inline hex.
 | Amber | `#e5ca8a` | `page.tsx:172` (EMA line) |
 | Down/negative red | `#e39d9d` | `page.tsx:163,166` (down-candle body/wick) |
 | Error banner | bg `#43282c`, text `#ffb4af` | `globals.css:249-252` (`.error`) |
+| Chart axis text | `#9eb0bd` (secondary text) | `page.tsx` chart `layout.textColor` (was a near-duplicate `#a5b7c4`) |
+| Brand wordmark / subtitle | `#e6f3e9` / `#8eaaa2` | `globals.css` `.brand`, `.brand span` |
+| Control border / input bg / input text | `#334551` / `#0d161d` / `#e4edf2` | `globals.css` `button`, `input`, `select` |
+| Button text, heatmap label | `#c5d6df` | `globals.css` `button`, `.heatmap small` |
+| `summary` text | `#b5c9d6` | `globals.css` `summary` |
+| Warning / danger status | `#e5ca8a` / `#e39d9d` | `globals.css` `.alert-warn`, `.run-running`; `.alert-danger`, `.run-failed`, `.run-interrupted` |
+
+Spacing is ad hoc (22/24/26/38/45/50px); there is no spacing scale yet.
 
 **Drift found:** the monthly-returns heatmap does **not** use the accent green / down-red hex
 tokens above. It uses its own literal rgba pair — `rgba(80,170,115,α)` positive,
-`rgba(210,90,90,α)` negative, `α = min(0.8, 0.12 + |return| * 8)` — defined inline at
+`rgba(210,90,90,α)` negative, `α = min(0.45, 0.12 + |return| * 8)` (capped at 0.45 on 2026-09-29 so cell text keeps ≥4.5:1 WCAG AA contrast; at 0.8 the biggest months fell to ~2.7:1) — defined inline at
 `page.tsx:673-676`. These are close to, but distinct from, `#a8ecb4` (`rgb(168,236,180)`) and
 `#e39d9d` (`rgb(227,157,157)`). Treat the heatmap pair as its own token, not as the brand
 green/red — see Components below, reuse the rgba formula verbatim for any new magnitude-scaled
@@ -75,12 +83,12 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
   strategy line plus an optional thinner blue (`#8199c5`) benchmark line, `fitContent()` on load
   (`page.tsx:120`), caption "Drag to pan · Scroll to zoom · Green: strategy · Blue: buy and hold"
   (`page.tsx:127-129`) — keep that caption's color-to-meaning mapping if this component is touched,
-  it is the only legend. Has an `aria-label` on the chart container (`page.tsx:126`).
+  it is the only legend. Its chart container has `role="img"` plus an `aria-label` (a bare `aria-label` on a role-less `<div>` is ignored by screen readers; fixed 2026-09-28). The caption names only the series actually drawn (a `caption` prop overrides it, e.g. the drawdown chart).
 - **`MarketPlot`** (`page.tsx:145-198`): a candlestick chart (green up / red down,
   `page.tsx:161-167`) plus EMA (amber, `page.tsx:172`) and both Bollinger bands (blue,
   `page.tsx:173-174`) as line overlays, height 420 (`page.tsx:151`), caption noting the 3,000-session
-  cap (`page.tsx:193-195`). **Fixed 2026-09-28:** its chart container now carries an
-  `aria-label` matching the heading text, consistent with `Plot`.
+  cap (`page.tsx:193-195`). **Fixed 2026-09-28:** its chart container now carries
+  `role="img"` and an `aria-label` matching the heading text, consistent with `Plot`.
 - **`Table`** (`page.tsx:199-235`): a generic key-driven table for any `Record<string, unknown>[]`.
   Numeric cells are locale-formatted to 4 decimal places (`page.tsx:216-219`), everything else is
   `String(...)` with `—` for null/undefined (`page.tsx:220`); column headers are the raw field name
@@ -110,8 +118,10 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
 - **Buttons** (`globals.css:92-120`): default (`#1a2933` bg, `#c5d6df` text, hover border
   `#a8ecb4` / text `#e3ffec`), `.primary` (solid `#a8ecb4` bg, `#10261a` text, weight 700), `nav`
   buttons are borderless/transparent with the active tab underlined in accent green
-  (`globals.css:110-119`), disabled state (`opacity: .45`, `cursor: wait`,
-  `globals.css:106-109`) while `busy` is true.
+  (`globals.css:110-119`), disabled state (`opacity: .45`, `cursor: not-allowed`,
+  `globals.css:106-109`); the busy message lives in a persistent `role="status"` region that
+  names the running action. Nav tabs mark the selected tab with `aria-current="page"` and use an
+  inset focus ring so the scrolling `nav` does not clip it.
 
 ## Semantic rules (content that must stay honest)
 
@@ -121,6 +131,8 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
    - Before running, the `.source` line reads either `"SYNTHETIC DATA — engineering demonstration,
      not observed market performance."` when the selected dataset's provider name contains
      `"synthetic"`, or `"Provider: " + provider` otherwise (`page.tsx:467-473`).
+   - The Market data tab and every paper account show the same synthetic/provider line for
+     their dataset (added 2026-09-29).
    - After a result loads, a second `.source` line renders `result.provenance?.provider`, the
      first 12 characters of `result.provenance?.dataset_id`, and the experiment/result id
      (`page.tsx:624-627`).
@@ -147,13 +159,12 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
    (`page.tsx:220`), `pct()` (`page.tsx:236-237`), and the paper-account equity line
    (`page.tsx:589`, `... || "—"`). The provenance `dataset_id` line under rule 1 above now
    follows this too, after the 2026-09-28 fix.
-5. **Units/precision are shown consistently.** Returns and drawdowns as `%` to 2 decimals via
-   `pct()`; Sharpe as an unitless 2-decimal number (`.toFixed(2)`); the "Full performance and risk
-   metrics" `Table` instead uses the generic 4-decimal numeric formatting for every metric it lists
-   (`page.tsx:687-691`) — that's a real, if minor, precision inconsistency between the tile grid
-   (2dp) and the full-metrics table (4dp) for the same underlying numbers, but it matches the
-   brief's description of `Table`'s generic formatting, so it's treated as intended rather than a
-   bug. Prices in the market chart carry no explicit currency label (everything is USD, per the
+5. **Units are shown consistently.** Returns and drawdowns as `%` to 2 decimals via
+   `pct()`; Sharpe as an unitless 2-decimal number (`.toFixed(2)`). The "Full performance and risk
+   metrics" table formats through `formatMetric()`: fraction metrics (`PCT_METRICS`) as `%`, P&L
+   and turnover (`MONEY_METRICS`) as `$` to 2 decimals, everything else to 4 decimals, so a table
+   row never disagrees in unit with the tile above it. Paper equity is `$` to 2 decimals.
+   Experiment times are labelled UTC. Numbers use the `en-US` locale. Prices in the market chart carry no explicit currency label (everything is USD, per the
    `Instrument.currency: Literal["USD"]` contract on the backend) — if a non-USD instrument is ever
    proposed, say so explicitly, since the UI has no currency-formatting path today.
 
@@ -171,15 +182,9 @@ set globally (`globals.css:3`) — dark theme only, no light-mode branch anywher
   properties; introducing `:root` variables would reduce drift risk the next time a color changes,
   but is a real refactor, not a one-line fix — propose it rather than doing it inline in an
   unrelated change.
-- `Result.simulation.trades` is fetched and typed but never rendered anywhere in the UI (see
-  `Table` drift above) — either wire it up or drop it from the type; leaving it half-plumbed is the
-  kind of drift this document exists to catch.
 - The heatmap's rgba pair (`rgba(80,170,115,α)` / `rgba(210,90,90,α)`) is a de-facto second
   green/red token distinct from the brand `#a8ecb4`/`#e39d9d` hex — worth formalizing (e.g. naming
   both pairs explicitly) if a `:root`-variable refactor ever happens.
-- `.summary strong` / `.metrics strong` render at normal (400) weight, not 500, due to the `font`
-  shorthand omitting a weight — flagged above; either intentional (lighter big numbers) or a
-  one-line fix (`font: 500 24px ...`) depending on what's wanted.
 
 ## Designing something new
 
