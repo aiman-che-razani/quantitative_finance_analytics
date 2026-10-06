@@ -11,7 +11,7 @@ dependencies = ["polars>=1.30,<2", "numpy>=2.2,<3", "pydantic>=2.10,<3", "exchan
 
 [project.optional-dependencies]
 yahoo = ["yfinance>=0.2.65,<2"]
-dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.16,<2", "psutil>=6,<8", "matplotlib>=3.9,<4", "playwright>=1.50,<2"]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.16,<3", "psutil>=6,<8", "matplotlib>=3.9,<4", "playwright>=1.50,<2"]
 
 [project.scripts]
 axiom = "axiom.cli:main"
