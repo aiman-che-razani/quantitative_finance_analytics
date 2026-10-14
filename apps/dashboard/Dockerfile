@@ -1,11 +1,11 @@
-FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS builder
+FROM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS builder
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
 ENV AXIOM_STANDALONE=1
 RUN npm run build
-FROM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80
+FROM node:26-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a
 WORKDIR /app
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=8821
 COPY --from=builder --chown=node:node /app/.next/standalone ./
